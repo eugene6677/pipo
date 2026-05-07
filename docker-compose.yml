@@ -11,9 +11,6 @@ services:
     env_file:
       - .env
 
-    environment:
-      NODE_ENV: production
-
     volumes:
       - ./:/app
       - /app/node_modules
@@ -24,3 +21,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+    labels:
+      - homepage.name=Discord Bot
+      - homepage.group=Bots
+      - homepage.icon=discord.png
+      - homepage.description=Bot XP Discord
+
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
