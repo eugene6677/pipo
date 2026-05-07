@@ -22,13 +22,13 @@ bot-discord/
 Depuis Windows PowerShell :
 
 ```powershell
-ssh basile@IP_DU_SERVEUR
+ssh mrbob@IP_DU_SERVEUR
 ```
 
 Exemple :
 
 ```powershell
-ssh basile@192.168.1.50
+ssh mrbob@192.168.1.50
 ```
 
 ---
@@ -148,7 +148,7 @@ git push
 ## 1. Se connecter au serveur
 
 ```powershell
-ssh basile@IP_DU_SERVEUR
+ssh mrbob@IP_DU_SERVEUR
 ```
 
 ---
