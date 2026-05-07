@@ -1,0 +1,26 @@
+services:
+  discord-bot:
+    container_name: discord-bot
+    image: node:22-alpine
+    restart: unless-stopped
+
+    working_dir: /app
+
+    command: sh -c "npm install && node index.js"
+
+    env_file:
+      - .env
+
+    environment:
+      NODE_ENV: production
+
+    volumes:
+      - ./:/app
+      - /app/node_modules
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep node || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
