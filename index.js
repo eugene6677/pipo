@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionFlagsBits } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 
 const client = new Client({
@@ -9,189 +9,207 @@ const client = new Client({
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildBans
     ]
 });
 
 const db = new sqlite3.Database('./levels.db');
 
-db.run(`CREATE TABLE IF NOT EXISTS users (
-    userId TEXT PRIMARY KEY,
-    xp INTEGER DEFAULT 0,
-    level INTEGER DEFAULT 0
-)`);
+// ============================================================
+// 🗄️ BASE DE DONNÉES
+// ============================================================
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        userId TEXT PRIMARY KEY,
+        xp INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 0,
+        coins INTEGER DEFAULT 0
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS shop (
+        roleId TEXT PRIMARY KEY,
+        roleName TEXT,
+        price INTEGER
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS recent_messages (
+        userId TEXT,
+        content TEXT,
+        timestamp INTEGER
+    )`);
+});
 
 // ============================================================
-// 🎁 RECOMPENSES — roles attribués selon le niveau
+// ⚙️ CONFIG
+// ============================================================
+const LEVELUP_CHANNEL_NAME = "level-up";
+const ADMIN_ROLE_NAME      = "OP";
+
+// ============================================================
+// 🎁 RECOMPENSES
 // ============================================================
 const rewards = [
     { minLevel: 1,  maxLevel: 2,  role: "Nouveau" },
     { minLevel: 3,  maxLevel: 4,  role: "Actif"   },
     { minLevel: 5,  maxLevel: 9,  role: "Cool"    },
-    { minLevel: 10, maxLevel: Infinity, role: "OG" }
+    { minLevel: 10, maxLevel: 19, role: "OG"      },
+    { minLevel: 20, maxLevel: Infinity, role: "Dieu" }
 ];
 
-// Donne le bon rôle selon le niveau, retire les autres
+// ============================================================
+// 🔧 FONCTIONS UTILITAIRES
+// ============================================================
+
+function getLevelUpChannel(guild) {
+    return guild.channels.cache.find(
+        c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased()
+    );
+}
+
+function isAdmin(member, guild) {
+    const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
+    return member.id === guild.ownerId ||
+           (opRole && member.roles.cache.has(opRole.id));
+}
+
+function getMultiplier(member, guild) {
+    let multiplier = 1;
+    if (member.id === guild.ownerId) multiplier *= 1.5;
+    const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
+    if (opRole && member.roles.cache.has(opRole.id)) multiplier *= 1.25;
+    return multiplier;
+}
+
 async function applyRankRoles(member, level) {
     const guildRoles = member.guild.roles.cache;
 
     for (const r of rewards) {
         const role = guildRoles.find(x => x.name === r.role);
         if (!role) {
-            console.log(`❌ Rôle introuvable sur le serveur : "${r.role}"`);
+            console.log(`❌ Rôle introuvable : "${r.role}"`);
             continue;
         }
 
         const shouldHave = level >= r.minLevel && level <= r.maxLevel;
         const hasRole    = member.roles.cache.has(role.id);
 
-        if (shouldHave && !hasRole) {
-            await member.roles.add(role).catch(err =>
-                console.log(`ERREUR ajout rôle ${r.role} :`, err.message)
-            );
-            console.log(`✅ Rôle "${r.role}" donné à ${member.user.tag}`);
-        }
+        if (shouldHave && !hasRole)
+            await member.roles.add(role).catch(err => console.log(`ERREUR ajout ${r.role} :`, err.message));
 
-        if (!shouldHave && hasRole) {
-            await member.roles.remove(role).catch(err =>
-                console.log(`ERREUR retrait rôle ${r.role} :`, err.message)
-            );
-            console.log(`🗑️ Rôle "${r.role}" retiré à ${member.user.tag}`);
-        }
+        if (!shouldHave && hasRole)
+            await member.roles.remove(role).catch(err => console.log(`ERREUR retrait ${r.role} :`, err.message));
     }
 }
 
 // ============================================================
-// 🔢 Calcul de l'XP selon les multiplicateurs
+// 🔊 XP VOCAL
 // ============================================================
-function getMultiplier(member, guild) {
-    let multiplier = 1;
+const voiceUsers = new Map();
 
-    if (member.id === guild.ownerId) multiplier *= 1.5;
+function startVoiceXP(member, guild) {
+    const userId = member.id;
+    if (voiceUsers.has(userId)) return;
 
-    const opRole = guild.roles.cache.find(r => r.name === "OP");
-    if (opRole && member.roles.cache.has(opRole.id)) multiplier *= 1.25;
+    const interval = setInterval(() => {
+        const freshMember  = guild.members.cache.get(userId);
+        const voiceChannel = freshMember?.voice.channel;
 
-    return multiplier;
+        if (!voiceChannel) {
+            clearInterval(interval);
+            voiceUsers.delete(userId);
+            return;
+        }
+
+        const vs = freshMember.voice;
+        if (vs.selfMute || vs.selfDeaf || vs.serverMute || vs.serverDeaf) {
+            console.log(`🔇 ${freshMember.user.tag} mute/sourdine → pas d'XP`);
+            return;
+        }
+
+        const activeUsers = voiceChannel.members.filter(m =>
+            !m.user.bot && !m.voice.selfMute && !m.voice.selfDeaf &&
+            !m.voice.serverMute && !m.voice.serverDeaf
+        );
+
+        if (activeUsers.size < 2) return;
+
+        const peopleMultiplier = 1 + (activeUsers.size - 2) * 0.1;
+        const xpGained         = Math.floor(5 * getMultiplier(freshMember, guild) * peopleMultiplier);
+
+        console.log(`🎤 +${xpGained} XP vocal pour ${freshMember.user.tag}`);
+
+        db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
+            if (!row) {
+                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`,
+                    [userId, xpGained]);
+                return;
+            }
+
+            let newXP    = row.xp + xpGained;
+            let newLevel = row.level;
+            let newCoins = row.coins;
+            let leveledUp = false;
+
+            while (newXP >= (newLevel + 1) * 100) {
+                newXP -= (newLevel + 1) * 100;
+                newLevel++;
+                newCoins += 10;
+                leveledUp = true;
+            }
+
+            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ?`,
+                [newXP, newLevel, newCoins, userId]);
+
+            if (leveledUp) {
+                applyRankRoles(freshMember, newLevel);
+                const ch = getLevelUpChannel(guild);
+                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+            }
+        });
+
+    }, 30000);
+
+    voiceUsers.set(userId, interval);
+    console.log(`▶️ XP vocal démarré pour ${member.user.tag}`);
 }
-
-// ============================================================
-// 🔊 XP VOCAL — intervalle toutes les 30 secondes
-// ============================================================
-const voiceUsers = new Map(); // userId -> intervalId
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-    const userId  = newState.id;
-    const guild   = newState.guild;
-    const member  = guild.members.cache.get(userId);
+    const userId = newState.id;
+    const guild  = newState.guild;
+    const member = guild.members.cache.get(userId);
     if (!member || member.user.bot) return;
 
-    const joinedVoice = !oldState.channelId && newState.channelId;
-    const leftVoice   = oldState.channelId  && !newState.channelId;
-    const changedState = oldState.channelId === newState.channelId; // mute/sourdine
+    if (!oldState.channelId && newState.channelId) startVoiceXP(member, guild);
 
-    // Démarrer l'intervalle quand on rejoint un vocal
-    if (joinedVoice) {
-        if (voiceUsers.has(userId)) return; // déjà enregistré
-
-        const interval = setInterval(() => {
-            const freshMember  = guild.members.cache.get(userId);
-            const voiceChannel = freshMember?.voice.channel;
-
-            if (!voiceChannel) {
-                clearInterval(interval);
-                voiceUsers.delete(userId);
-                return;
-            }
-
-            // Vérif : membre muet ou en sourdine → pas d'XP
-            const voiceState = freshMember.voice;
-            if (voiceState.selfMute || voiceState.selfDeaf || voiceState.serverMute || voiceState.serverDeaf) {
-                console.log(`🔇 ${freshMember.user.tag} est mute/sourdine → pas d'XP`);
-                return;
-            }
-
-            // Vérif : au moins 2 humains non-muet dans le canal
-            const activeUsers = voiceChannel.members.filter(m =>
-                !m.user.bot &&
-                !m.voice.selfMute &&
-                !m.voice.selfDeaf &&
-                !m.voice.serverMute &&
-                !m.voice.serverDeaf
-            );
-
-            if (activeUsers.size < 2) {
-                console.log(`👥 Moins de 2 humains actifs dans ${voiceChannel.name} → pas d'XP`);
-                return;
-            }
-
-            // Multiplicateur selon le nombre de personnes dans le vocal
-	    const peopleCount = activeUsers.size;
-	    const peopleMultiplier = peopleCount >= 2 ? 1 + (peopleCount - 2) * 0.1 : 0;
-	    const xpGained = Math.floor(5 * getMultiplier(freshMember, guild) * peopleMultiplier);
-
-            console.log(`🎤 XP vocal : +${xpGained} pour ${freshMember.user.tag}`);
-
-            db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
-                if (!row) {
-                    db.run(`INSERT INTO users (userId, xp, level) VALUES (?, ?, ?)`,
-                        [userId, xpGained, 0]);
-                    return;
-                }
-
-                let newXP    = row.xp + xpGained;
-                let newLevel = row.level;
-
-                while (newXP >= (newLevel + 1) * 100) {
-                    newXP -= (newLevel + 1) * 100;
-                    newLevel++;
-
-                    console.log(`🏆 LEVEL UP ${freshMember.user.tag} → niveau ${newLevel}`);
-                    applyRankRoles(freshMember, newLevel);
-
-                    guild.systemChannel?.send(
-                        `<@${userId}> est passé niveau **${newLevel}** 🎉`
-                    );
-                }
-
-                db.run(`UPDATE users SET xp = ?, level = ? WHERE userId = ?`,
-                    [newXP, newLevel, userId]);
-            });
-
-        }, 30000); // toutes les 30 secondes
-
-        voiceUsers.set(userId, interval);
-        console.log(`▶️ Intervalle XP démarré pour ${member.user.tag}`);
-    }
-
-    // Arrêter l'intervalle quand on quitte le vocal
-    if (leftVoice) {
-        if (voiceUsers.has(userId)) {
-            clearInterval(voiceUsers.get(userId));
-            voiceUsers.delete(userId);
-            console.log(`⏹️ Intervalle XP arrêté pour ${member.user.tag}`);
-        }
+    if (oldState.channelId && !newState.channelId && voiceUsers.has(userId)) {
+        clearInterval(voiceUsers.get(userId));
+        voiceUsers.delete(userId);
+        console.log(`⏹️ XP vocal arrêté pour ${member.user.tag}`);
     }
 });
 
 // ============================================================
 // 💬 XP MESSAGE + COMMANDES + ANTI-SPAM
 // ============================================================
-const msgCooldown = new Map(); // userId -> timestamp dernier message
-const spamData    = new Map(); // userId -> { count, last }
+const msgCooldown = new Map();
+const spamData    = new Map();
 
-client.on('messageCreate', (message) => {
+client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    const userId = message.author.id;
-    const now    = Date.now();
+    const userId  = message.author.id;
+    const guild   = message.guild;
+    const now     = Date.now();
+    const member  = guild.members.cache.get(userId);
     const isCommand = message.content.startsWith('!');
+    const levelUpChannel = getLevelUpChannel(guild);
 
     // ---------- ANTI-SPAM ----------
     if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
     const spam = spamData.get(userId);
 
-    if (now - spam.last > 5000) spam.count = 0; // reset après 5 sec sans message
+    if (now - spam.last > 5000) spam.count = 0;
     spam.last = now;
     spam.count++;
 
@@ -204,67 +222,252 @@ client.on('messageCreate', (message) => {
         message.reply("❌ Spam détecté : **-20 XP** !");
         return;
     }
+    if (spam.count === 5) {
+        message.reply("⛔ Trop de spam : ban temporaire de 1 minute !");
+        await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
+            .catch(err => console.log("ERREUR BAN:", err.message));
+        setTimeout(async () => {
+            await guild.bans.remove(userId).catch(err => console.log("ERREUR UNBAN:", err.message));
+            console.log(`✅ ${userId} débanni`);
+        }, 60000);
+        return;
+    }
     if (spam.count >= 4) {
-        message.reply("⛔ Spam excessif, tu es ignoré.");
+        message.reply("⛔ Spam excessif !");
         return;
     }
 
     // ---------- COMMANDES ----------
     if (isCommand) {
-        if (message.content === '!rank') {
-            db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
-                if (!row) return message.reply("Tu n'as pas encore d'XP.");
-                message.reply(`📊 Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100}`);
+        const args    = message.content.slice(1).trim().split(/\s+/);
+        const command = args[0].toLowerCase();
+
+        // !rank (@membre optionnel)
+        if (command === 'rank') {
+            const target   = message.mentions.users.first();
+            const targetId = target ? target.id : userId;
+
+            db.get(`SELECT * FROM users WHERE userId = ?`, [targetId], (err, row) => {
+                const reply = !row
+                    ? "Cet utilisateur n'a pas encore d'XP."
+                    : `📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins`;
+
+                if (levelUpChannel) levelUpChannel.send(reply);
+                else message.reply(reply);
             });
         }
 
-        if (message.content === '!top') {
+        // !top
+        if (command === 'top') {
             db.all(`SELECT * FROM users ORDER BY level DESC, xp DESC LIMIT 10`, [], (err, rows) => {
-                if (!rows || rows.length === 0) return message.reply("Aucun joueur classé.");
-
+                if (!rows || rows.length === 0) {
+                    const reply = "Aucun joueur classé.";
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                    return;
+                }
                 let msg = "🏆 **Classement du serveur** 🏆\n\n";
+                rows.forEach((u, i) => {
+                    msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
+                });
+                if (levelUpChannel) levelUpChannel.send(msg);
+                else message.reply(msg);
+            });
+        }
+
+        // !bot — 5 membres les moins actifs
+        if (command === 'bot') {
+            db.all(`SELECT * FROM users ORDER BY level ASC, xp ASC LIMIT 5`, [], (err, rows) => {
+                if (!rows || rows.length === 0) {
+                    const reply = "Aucun joueur classé.";
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                    return;
+                }
+                let msg = "🐢 **Les 5 moins actifs** 🐢\n\n";
                 rows.forEach((u, i) => {
                     msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP)\n`;
                 });
-                message.reply(msg);
+                if (levelUpChannel) levelUpChannel.send(msg);
+                else message.reply(msg);
             });
         }
 
-        return; // les commandes ne donnent pas d'XP
+        // !setxp @membre <xp> — owner uniquement
+        if (command === 'setxp') {
+            if (userId !== guild.ownerId) {
+                message.reply("❌ Commande réservée au propriétaire du serveur.");
+                return;
+            }
+            const target = message.mentions.users.first();
+            const amount = parseInt(args[2]);
+            if (!target || isNaN(amount)) {
+                message.reply("Usage : `!setxp @membre <xp>`");
+                return;
+            }
+            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)
+                    ON CONFLICT(userId) DO UPDATE SET xp = ?`,
+                [target.id, amount, amount]);
+            message.reply(`✅ XP de <@${target.id}> défini à **${amount}**.`);
+        }
+
+        // !setlevel @membre <niveau> — owner uniquement
+        if (command === 'setlevel') {
+            if (userId !== guild.ownerId) {
+                message.reply("❌ Commande réservée au propriétaire du serveur.");
+                return;
+            }
+            const target = message.mentions.users.first();
+            const level  = parseInt(args[2]);
+            if (!target || isNaN(level)) {
+                message.reply("Usage : `!setlevel @membre <niveau>`");
+                return;
+            }
+            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, ?, 0)
+                    ON CONFLICT(userId) DO UPDATE SET level = ?, xp = 0`,
+                [target.id, level, level]);
+            const targetMember = guild.members.cache.get(target.id);
+            if (targetMember) applyRankRoles(targetMember, level);
+            message.reply(`✅ Niveau de <@${target.id}> défini à **${level}**.`);
+        }
+
+        // !shop — voir le shop
+        if (command === 'shop') {
+            db.all(`SELECT * FROM shop`, [], (err, rows) => {
+                if (!rows || rows.length === 0) {
+                    const reply = "🛒 Le shop est vide pour l'instant.";
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                    return;
+                }
+                let msg = "🛒 **Shop du serveur** 🛒\n\n";
+                rows.forEach(r => {
+                    msg += `• **${r.roleName}** — 🪙 ${r.price} coins\n`;
+                });
+                msg += "\nPour acheter : `!buy <nom du rôle>`";
+                if (levelUpChannel) levelUpChannel.send(msg);
+                else message.reply(msg);
+            });
+        }
+
+        // !addshop <prix> @rôle — OP et owner
+        if (command === 'addshop') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            const price = parseInt(args[1]);
+            const roleM = message.mentions.roles.first();
+            if (!roleM || isNaN(price)) {
+                message.reply("Usage : `!addshop <prix> @rôle`");
+                return;
+            }
+            db.run(`INSERT OR REPLACE INTO shop (roleId, roleName, price) VALUES (?, ?, ?)`,
+                [roleM.id, roleM.name, price]);
+            message.reply(`✅ **${roleM.name}** ajouté au shop pour 🪙 ${price} coins.`);
+        }
+
+        // !removeshop @rôle — OP et owner
+        if (command === 'removeshop') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            const roleM = message.mentions.roles.first();
+            if (!roleM) {
+                message.reply("Usage : `!removeshop @rôle`");
+                return;
+            }
+            db.run(`DELETE FROM shop WHERE roleId = ?`, [roleM.id]);
+            message.reply(`✅ **${roleM.name}** retiré du shop.`);
+        }
+
+        // !buy <nom du rôle>
+        if (command === 'buy') {
+            const roleName = args.slice(1).join(' ');
+            if (!roleName) {
+                message.reply("Usage : `!buy <nom du rôle>`");
+                return;
+            }
+            db.get(`SELECT * FROM shop WHERE LOWER(roleName) = LOWER(?)`, [roleName], async (err, shopItem) => {
+                if (!shopItem) {
+                    message.reply(`❌ Rôle "${roleName}" introuvable dans le shop.`);
+                    return;
+                }
+                db.get(`SELECT * FROM users WHERE userId = ?`, [userId], async (err2, row) => {
+                    if (!row || row.coins < shopItem.price) {
+                        message.reply(`❌ Pas assez de coins. Il te faut 🪙 **${shopItem.price}**, tu en as **${row?.coins ?? 0}**.`);
+                        return;
+                    }
+                    const role = guild.roles.cache.get(shopItem.roleId);
+                    if (!role) {
+                        message.reply("❌ Ce rôle n'existe plus sur le serveur.");
+                        return;
+                    }
+                    if (member.roles.cache.has(role.id)) {
+                        message.reply("❌ Tu as déjà ce rôle.");
+                        return;
+                    }
+                    await member.roles.add(role).catch(err3 => console.log("ERREUR ajout rôle shop:", err3.message));
+                    db.run(`UPDATE users SET coins = coins - ? WHERE userId = ?`, [shopItem.price, userId]);
+                    message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins !`);
+                });
+            });
+        }
+
+        return;
     }
 
     // ---------- XP NORMAL ----------
-    // Cooldown 2 secondes entre deux messages qui donnent de l'XP
     if (msgCooldown.has(userId) && now - msgCooldown.get(userId) < 2000) return;
     msgCooldown.set(userId, now);
 
-    const member     = message.guild.members.cache.get(userId);
     const totalLetters = message.content.replace(/\s/g, '').length;
     if (totalLetters < 5) return;
 
-    const wordCount = message.content.trim().split(/\s+/).length;
-    const xpGained = Math.floor(wordCount * (member ? getMultiplier(member, message.guild) : 1));
+    const content24h = message.content.trim().toLowerCase();
+    const dayAgo     = now - 86400000;
 
-    db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
-        if (!row) {
-            db.run(`INSERT INTO users (userId, xp, level) VALUES (?, ?, ?)`,
-                [userId, xpGained, 0]);
+    db.get(`SELECT COUNT(*) as cnt FROM recent_messages WHERE userId = ? AND content = ? AND timestamp > ?`,
+        [userId, content24h, dayAgo], (err, res) => {
+
+        if (res && res.cnt >= 2) {
+            console.log(`⛔ Message répété ignoré pour ${userId}`);
             return;
         }
 
-        let newXP    = row.xp + xpGained;
-        let newLevel = row.level;
+        db.run(`INSERT INTO recent_messages (userId, content, timestamp) VALUES (?, ?, ?)`,
+            [userId, content24h, now]);
+        db.run(`DELETE FROM recent_messages WHERE timestamp < ?`, [dayAgo]);
 
-        while (newXP >= (newLevel + 1) * 100) {
-            newXP -= (newLevel + 1) * 100;
-            newLevel++;
+        const wordCount = Math.min(message.content.trim().split(/\s+/).length, 10);
+        const xpGained  = Math.floor(wordCount * (member ? getMultiplier(member, guild) : 1));
 
-            message.channel.send(`<@${userId}> est passé niveau **${newLevel}** 🎉`);
-            if (member) applyRankRoles(member, newLevel);
-        }
+        db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err2, row) => {
+            if (!row) {
+                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`,
+                    [userId, xpGained]);
+                return;
+            }
 
-        db.run(`UPDATE users SET xp = ?, level = ? WHERE userId = ?`,
-            [newXP, newLevel, userId]);
+            let newXP    = row.xp + xpGained;
+            let newLevel = row.level;
+            let newCoins = row.coins;
+
+            while (newXP >= (newLevel + 1) * 100) {
+                newXP -= (newLevel + 1) * 100;
+                newLevel++;
+                newCoins += 10;
+
+                if (levelUpChannel)
+                    levelUpChannel.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+
+                if (member) applyRankRoles(member, newLevel);
+            }
+
+            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ?`,
+                [newXP, newLevel, newCoins, userId]);
+        });
     });
 });
 
@@ -273,6 +476,18 @@ client.on('messageCreate', (message) => {
 // ============================================================
 client.once('clientReady', () => {
     console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
+
+    client.guilds.cache.forEach(guild => {
+        guild.channels.cache
+            .filter(c => c.isVoiceBased())
+            .forEach(channel => {
+                channel.members
+                    .filter(m => !m.user.bot)
+                    .forEach(member => startVoiceXP(member, guild));
+            });
+    });
+
+    console.log("🔊 Scan des vocaux terminé.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
