@@ -209,7 +209,7 @@ client.on('messageCreate', async (message) => {
     if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
     const spam = spamData.get(userId);
 
-    if (now - spam.last > 5000) spam.count = 0;
+    if (now - spam.last > 1000) spam.count = 0;
     spam.last = now;
     spam.count++;
 
@@ -330,7 +330,23 @@ client.on('messageCreate', async (message) => {
             if (targetMember) applyRankRoles(targetMember, level);
             message.reply(`✅ Niveau de <@${target.id}> défini à **${level}**.`);
         }
-
+        // !setcoins @membre <nombre> — OP et owner
+        if (command === 'setcoins') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+              return;
+            }
+            const target = message.mentions.users.first();
+            const amount = parseInt(args[2]);
+            if (!target || isNaN(amount)) {
+        message.reply("Usage : `!setcoins @membre <nombre>`");
+        return;
+        }
+         db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
+            ON CONFLICT(userId) DO UPDATE SET coins = ?`,
+        [target.id, amount, amount]);
+    message.reply(`✅ Coins de <@${target.id}> définis à 🪙 **${amount}**.`);
+}
         // !shop — voir le shop
         if (command === 'shop') {
             db.all(`SELECT * FROM shop`, [], (err, rows) => {
