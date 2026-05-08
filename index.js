@@ -43,7 +43,7 @@ db.serialize(() => {
 // ============================================================
 // ⚙️ CONFIG
 // ============================================================
-const LEVELUP_CHANNEL_NAME = "level-up";
+const LEVELUP_CHANNEL_NAME = "commande";
 const ADMIN_ROLE_NAME      = "OP";
 
 // ============================================================
@@ -65,6 +65,35 @@ function getLevelUpChannel(guild) {
     return guild.channels.cache.find(
         c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased()
     );
+}
+
+// Enregistre l'heure d'activité d'un membre
+function recordActivity(userId) {
+    const hour = new Date().getHours();
+    db.run(`INSERT INTO activity (userId, hour, count) VALUES (?, ?, 1)
+            ON CONFLICT(userId, hour) DO UPDATE SET count = count + 1`,
+        [userId, hour]);
+}
+
+// Calcule la plage d'activité d'un membre
+function getActivityRange(userId, callback) {
+    db.all(`SELECT hour, count FROM activity WHERE userId = ? ORDER BY count DESC`, [userId], (err, rows) => {
+        if (!rows || rows.length === 0) return callback(null);
+
+        const totalCount = rows.reduce((sum, r) => sum + r.count, 0);
+        const threshold  = totalCount * 0.1; // heures avec au moins 10% de l'activité totale
+
+        const activeHours = rows
+            .filter(r => r.count >= threshold)
+            .map(r => r.hour)
+            .sort((a, b) => a - b);
+
+        if (activeHours.length === 0) return callback(null);
+
+        const min = activeHours[0];
+        const max = activeHours[activeHours.length - 1];
+        callback(`${min}h à ${max}h`);
+    });
 }
 
 function isAdmin(member, guild) {
@@ -138,6 +167,7 @@ function startVoiceXP(member, guild) {
         const xpGained         = Math.floor(5 * getMultiplier(freshMember, guild) * peopleMultiplier);
 
         console.log(`🎤 +${xpGained} XP vocal pour ${freshMember.user.tag}`);
+        recordActivity(userId);
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
             if (!row) {
@@ -213,16 +243,16 @@ if (!isCommand) {
     spam.last = now;
     spam.count++;
 
-    if (spam.count === 2) {
+    if (spam.count === 5) {
         message.reply("⚠️ Arrête de spam !");
         return;
     }
-    if (spam.count === 3) {
+    if (spam.count === 6) {
         db.run(`UPDATE users SET xp = MAX(xp - 20, 0) WHERE userId = ?`, [userId]);
         message.reply("❌ Spam détecté : **-20 XP** !");
         return;
     }
-    if (spam.count === 5) {
+    if (spam.count === 8) {
         message.reply("⛔ Trop de spam : ban temporaire de 1 minute !");
         await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
             .catch(err => console.log("ERREUR BAN:", err.message));
@@ -231,7 +261,7 @@ if (!isCommand) {
         }, 60000);
         return;
     }
-    if (spam.count >= 4) {
+    if (spam.count >= 9) {
         message.reply("⛔ Spam excessif !");
         return;
     }
@@ -248,12 +278,19 @@ if (!isCommand) {
             const targetId = target ? target.id : userId;
 
             db.get(`SELECT * FROM users WHERE userId = ?`, [targetId], (err, row) => {
-                const reply = !row
-                    ? "Cet utilisateur n'a pas encore d'XP."
-                    : `📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins`;
+                if (!row) {
+                    const reply = "Cet utilisateur n'a pas encore d'XP.";
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                    return;
+                }
 
-                if (levelUpChannel) levelUpChannel.send(reply);
-                else message.reply(reply);
+                getActivityRange(targetId, (range) => {
+                    const activityText = range ? ` | 🕐 Actif de **${range}**` : "";
+                    const reply = `📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins${activityText}`;
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                });
             });
         }
 
@@ -367,6 +404,95 @@ if (!isCommand) {
             });
         }
 
+        if (command === 'roles') {
+            db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], (err, rows) => {
+                if (!rows || rows.length === 0) {
+                    const reply = "Tu n'as aucun rôle acheté en cours.";
+                    if (levelUpChannel) levelUpChannel.send(reply);
+                    else message.reply(reply);
+                    return;
+                }
+
+                let msg = "🎭 **Vos rôles achetés** 🎭\n\n";
+                const nowTime = Date.now();
+
+                rows.forEach(r => {
+                    const role = guild.roles.cache.get(r.roleId);
+                    const roleName = role ? role.name : "Rôle supprimé";
+                    const remainingMs = r.expiresAt - nowTime;
+                    const remainingH  = Math.floor(remainingMs / 3600000);
+                    const remainingM  = Math.floor((remainingMs % 3600000) / 60000);
+                msg += `• **${roleName}** — ⏰ ${remainingH}h${remainingM}m restantes\n`;
+                });
+
+                if (levelUpChannel) levelUpChannel.send(msg);
+                else message.reply(msg);
+            });
+        }
+
+        if (command === 'pause') {
+            const roleName = args.slice(1).join(' ');
+            if (!roleName) {
+                message.reply("Usage : `!pause <nom du rôle>`");
+                return;
+            }
+
+            db.get(`SELECT * FROM role_expirations WHERE userId = ? AND roleId = (SELECT roleId FROM shop WHERE LOWER(roleName) = LOWER(?))`,
+                [userId, roleName], async (err, row) => {
+                if (!row) {
+                    message.reply(`❌ Tu n'as pas ce rôle ou il est permanent.`);
+                    return;
+                }
+
+                const role = guild.roles.cache.get(row.roleId);
+                if (!role) {
+                    message.reply("❌ Ce rôle n'existe plus.");
+                    return;
+                }
+
+                const remainingMs = row.expiresAt - Date.now();
+
+                await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle pause:", err.message));
+
+                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
+                    [-remainingMs, userId, row.roleId]); // on stocke le temps restant en négatif pour indiquer la pause
+
+                message.reply(`⏸️ Le rôle **${role.name}** est en pause. Il te reste **${Math.floor(remainingMs / 3600000)}h${Math.floor((remainingMs % 3600000) / 60000)}m**.`);
+            });
+        }
+
+        if (command === 'unpause') {
+            const roleName = args.slice(1).join(' ');
+            if (!roleName) {
+                message.reply("Usage : `!unpause <nom du rôle>`");
+                return;
+            }
+
+            db.get(`SELECT * FROM role_expirations WHERE userId = ? AND expiresAt < 0 AND roleId = (SELECT roleId FROM shop WHERE LOWER(roleName) = LOWER(?))`,
+                [userId, roleName], async (err, row) => {
+                if (!row) {
+                    message.reply(`❌ Ce rôle n'est pas en pause.`);
+                    return;
+                }
+
+                const role = guild.roles.cache.get(row.roleId);
+                if (!role) {
+                    message.reply("❌ Ce rôle n'existe plus.");
+                    return;
+                }
+
+                const remainingMs = -row.expiresAt; // on récupère le temps restant
+                const newExpiresAt = Date.now() + remainingMs;
+
+                await member.roles.add(role).catch(err => console.log("ERREUR ajout rôle unpause:", err.message));
+
+                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
+                    [newExpiresAt, userId, row.roleId]);
+
+                message.reply(`▶️ Le rôle **${role.name}** a repris. Il expirera dans **${Math.floor(remainingMs / 3600000)}h${Math.floor((remainingMs % 3600000) / 60000)}m**.`);
+            });
+        }
+
         // !addshop <prix> @rôle — OP et owner
         if (command === 'addshop') {
             if (!isAdmin(member, guild)) {
@@ -470,6 +596,8 @@ if (!isCommand) {
 
         const wordCount = Math.min(message.content.trim().split(/\s+/).length, 10);
         const xpGained  = Math.floor(wordCount * (member ? getMultiplier(member, guild) : 1));
+
+        recordActivity(userId);
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err2, row) => {
             if (!row) {
