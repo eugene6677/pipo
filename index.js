@@ -327,7 +327,7 @@ if (!isCommand) {
 
                     const allMembers = [...(rows || []), ...noXpMembers]
                         .sort((a, b) => a.level - b.level || a.xp - b.xp)
-                        .slice(0, 15);
+                        .slice(0, 10);
 
                     if (allMembers.length === 0) {
                         const reply = "Aucun membre trouvé.";
@@ -336,7 +336,7 @@ if (!isCommand) {
                         return;
                     }
 
-                    let msg = "🐢 **Les 15 moins actifs** 🐢\n\n";
+                    let msg = "🐢 **Les 10 moins actifs** 🐢\n\n";
                     allMembers.forEach((u, i) => {
                         msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP)\n`;
                     });
