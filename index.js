@@ -209,7 +209,7 @@ client.on('messageCreate', async (message) => {
 if (!isCommand) {
     if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
     const spam = spamData.get(userId);
-    if (now - spam.last > 5000) spam.count = 0;
+    if (now - spam.last > 500) spam.count = 0;
     spam.last = now;
     spam.count++;
 
