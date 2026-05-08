@@ -206,10 +206,10 @@ client.on('messageCreate', async (message) => {
     const levelUpChannel = getLevelUpChannel(guild);
 
     // ---------- ANTI-SPAM ----------
+if (!isCommand) {
     if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
     const spam = spamData.get(userId);
-
-    if (now - spam.last > 1000) spam.count = 0;
+    if (now - spam.last > 5000) spam.count = 0;
     spam.last = now;
     spam.count++;
 
@@ -228,13 +228,13 @@ client.on('messageCreate', async (message) => {
             .catch(err => console.log("ERREUR BAN:", err.message));
         setTimeout(async () => {
             await guild.bans.remove(userId).catch(err => console.log("ERREUR UNBAN:", err.message));
-            console.log(`✅ ${userId} débanni`);
         }, 60000);
         return;
     }
     if (spam.count >= 4) {
         message.reply("⛔ Spam excessif !");
         return;
+    }
     }
 
     // ---------- COMMANDES ----------
@@ -334,19 +334,19 @@ client.on('messageCreate', async (message) => {
         if (command === 'setcoins') {
             if (!isAdmin(member, guild)) {
                 message.reply("❌ Réservé aux OP et au créateur.");
-              return;
+            return;
             }
-            const target = message.mentions.users.first();
-            const amount = parseInt(args[2]);
-            if (!target || isNaN(amount)) {
-        message.reply("Usage : `!setcoins @membre <nombre>`");
+        const target = message.mentions.users.first();
+        const amount = parseInt(args[2]);
+        if (!target || isNaN(amount)) {
+            message.reply("Usage : `!setcoins @membre <nombre>`");
         return;
         }
-         db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
-            ON CONFLICT(userId) DO UPDATE SET coins = ?`,
-        [target.id, amount, amount]);
-    message.reply(`✅ Coins de <@${target.id}> définis à 🪙 **${amount}**.`);
-}
+                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
+                    ON CONFLICT(userId) DO UPDATE SET coins = ?`,
+                [target.id, amount, amount]);
+            message.reply(`✅ Coins de <@${target.id}> définis à 🪙 **${amount}**.`);
+        }
         // !shop — voir le shop
         if (command === 'shop') {
             db.all(`SELECT * FROM shop`, [], (err, rows) => {
@@ -358,7 +358,8 @@ client.on('messageCreate', async (message) => {
                 }
                 let msg = "🛒 **Shop du serveur** 🛒\n\n";
                 rows.forEach(r => {
-                    msg += `• **${r.roleName}** — 🪙 ${r.price} coins\n`;
+                    const duree = r.duration === 0 ? "permanent" : `${r.duration}h`;
+                    msg += `• **${r.roleName}** — 🪙 ${r.price} coins (${duree})\n`;
                 });
                 msg += "\nPour acheter : `!buy <nom du rôle>`";
                 if (levelUpChannel) levelUpChannel.send(msg);
@@ -373,14 +374,17 @@ client.on('messageCreate', async (message) => {
                 return;
             }
             const price = parseInt(args[1]);
+            const duration = parseInt(args[2]); // en heures, optionnel
             const roleM = message.mentions.roles.first();
             if (!roleM || isNaN(price)) {
-                message.reply("Usage : `!addshop <prix> @rôle`");
+                message.reply("Usage : `!addshop <prix> <durée en heures ou 0 pour permanent> @rôle`");
                 return;
             }
-            db.run(`INSERT OR REPLACE INTO shop (roleId, roleName, price) VALUES (?, ?, ?)`,
-                [roleM.id, roleM.name, price]);
-            message.reply(`✅ **${roleM.name}** ajouté au shop pour 🪙 ${price} coins.`);
+            const durationVal = isNaN(duration) ? 0 : duration;
+            db.run(`INSERT OR REPLACE INTO shop (roleId, roleName, price, duration) VALUES (?, ?, ?, ?)`,
+                [roleM.id, roleM.name, price, durationVal]);
+            const durationText = durationVal === 0 ? "permanent" : `${durationVal}h`;
+            message.reply(`✅ **${roleM.name}** ajouté au shop pour 🪙 ${price} coins (${durationText}).`);
         }
 
         // !removeshop @rôle — OP et owner
@@ -426,7 +430,15 @@ client.on('messageCreate', async (message) => {
                     }
                     await member.roles.add(role).catch(err3 => console.log("ERREUR ajout rôle shop:", err3.message));
                     db.run(`UPDATE users SET coins = coins - ? WHERE userId = ?`, [shopItem.price, userId]);
-                    message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins !`);
+
+                    if (shopItem.duration > 0) {
+                        const expiresAt = now + shopItem.duration * 3600000;
+                        db.run(`INSERT OR REPLACE INTO role_expirations (userId, roleId, expiresAt) VALUES (?, ?, ?)`,
+                            [userId, shopItem.roleId, expiresAt]);
+                        message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins ! Il expirera dans **${shopItem.duration}h**.`);
+                    } else {
+                        message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins !`);
+                    }
                 });
             });
         }
@@ -489,7 +501,32 @@ client.on('messageCreate', async (message) => {
 
 // ============================================================
 // 🚀 DÉMARRAGE
-// ============================================================
+// ============================================================// 
+// Vérification des rôles expirés toutes les minutes
+setInterval(() => {
+    const now = Date.now();
+    db.all(`SELECT * FROM role_expirations WHERE expiresAt <= ?`, [now], async (err, rows) => {
+        if (!rows || rows.length === 0) return;
+
+        for (const row of rows) {
+            const guild = client.guilds.cache.first();
+            if (!guild) continue;
+
+            const member = guild.members.cache.get(row.userId);
+            const role = guild.roles.cache.get(row.roleId);
+
+            if (member && role && member.roles.cache.has(role.id)) {
+                await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle expiré:", err.message));
+                console.log(`⏰ Rôle "${role.name}" expiré et retiré à ${member.user.tag}`);
+
+                const ch = getLevelUpChannel(guild);
+                if (ch) ch.send(`⏰ Le rôle **${role.name}** de <@${row.userId}> a expiré et a été retiré.`);
+            }
+
+            db.run(`DELETE FROM role_expirations WHERE userId = ? AND roleId = ?`, [row.userId, row.roleId]);
+        }
+    });
+}, 60000);
 client.once('clientReady', () => {
     console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
 
