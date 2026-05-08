@@ -314,19 +314,36 @@ if (!isCommand) {
 
         // !bot — 5 membres les moins actifs
         if (command === 'bot') {
-            db.all(`SELECT * FROM users ORDER BY level ASC, xp ASC LIMIT 5`, [], (err, rows) => {
-                if (!rows || rows.length === 0) {
-                    const reply = "Aucun joueur classé.";
-                    if (levelUpChannel) levelUpChannel.send(reply);
-                    else message.reply(reply);
-                    return;
-                }
-                let msg = "🐢 **Les 5 moins actifs** 🐢\n\n";
-                rows.forEach((u, i) => {
-                    msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP)\n`;
+            guild.members.fetch().then(members => {
+                const nonBotMembers = members.filter(m => !m.user.bot);
+
+                db.all(`SELECT * FROM users ORDER BY level ASC, xp ASC`, [], (err, rows) => {
+                    const registeredIds = rows.map(r => r.userId);
+
+                    // Membres sans aucune XP
+                    const noXpMembers = nonBotMembers
+                        .filter(m => !registeredIds.includes(m.id))
+                        .map(m => ({ userId: m.id, level: 0, xp: 0 }));
+
+                    const allMembers = [...(rows || []), ...noXpMembers]
+                        .sort((a, b) => a.level - b.level || a.xp - b.xp)
+                        .slice(0, 5);
+
+                    if (allMembers.length === 0) {
+                        const reply = "Aucun membre trouvé.";
+                        if (levelUpChannel) levelUpChannel.send(reply);
+                        else message.reply(reply);
+                        return;
+                    }
+
+                    let msg = "🐢 **Les 5 moins actifs** 🐢\n\n";
+                    allMembers.forEach((u, i) => {
+                        msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP)\n`;
+                    });
+
+                    if (levelUpChannel) levelUpChannel.send(msg);
+                    else message.reply(msg);
                 });
-                if (levelUpChannel) levelUpChannel.send(msg);
-                else message.reply(msg);
             });
         }
 
