@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 
 const client = new Client({
@@ -28,9 +28,19 @@ db.serialize(() => {
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS shop (
-        roleId TEXT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        roleId TEXT,
         roleName TEXT,
-        price INTEGER
+        price INTEGER,
+        duration INTEGER DEFAULT 0,
+        description TEXT DEFAULT ''
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS role_expirations (
+        userId TEXT,
+        roleId TEXT,
+        expiresAt INTEGER,
+        PRIMARY KEY (userId, roleId)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS recent_messages (
@@ -38,12 +48,31 @@ db.serialize(() => {
         content TEXT,
         timestamp INTEGER
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS activity (
+        userId TEXT,
+        hour INTEGER,
+        count INTEGER DEFAULT 0,
+        PRIMARY KEY (userId, hour)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ideas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT,
+        idea TEXT,
+        timestamp INTEGER
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS banned_ideas (
+        userId TEXT PRIMARY KEY
+    )`);
 });
 
 // ============================================================
 // ⚙️ CONFIG
 // ============================================================
-const LEVELUP_CHANNEL_NAME = "commande";
+const LEVELUP_CHANNEL_NAME = "🔆niveau🔆";
+const COMMAND_CHANNEL_NAME = "commande";
 const ADMIN_ROLE_NAME      = "OP";
 
 // ============================================================
@@ -62,24 +91,23 @@ const rewards = [
 // ============================================================
 
 function getLevelUpChannel(guild) {
-    return guild.channels.cache.find(
-        c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased()
-    );
+    return guild.channels.cache.find(c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased());
+}
+
+function getCommandChannel(guild) {
+    return guild.channels.cache.find(c => c.name === COMMAND_CHANNEL_NAME && c.isTextBased());
 }
 
 function getLogsChannel(guild) {
-    return guild.channels.cache.find(
-        c => c.name === "logs" && c.isTextBased()
-    );
+    return guild.channels.cache.find(c => c.name === "logs" && c.isTextBased());
 }
 
-function sendLog(guild, message) {
-    const logsChannel = getLogsChannel(guild);
-    if (logsChannel) logsChannel.send(message);
-    console.log(message);
+function sendLog(guild, msg) {
+    const ch = getLogsChannel(guild);
+    if (ch) ch.send(msg);
+    console.log(msg);
 }
 
-// Enregistre l'heure d'activité d'un membre
 function recordActivity(userId) {
     const hour = new Date().getHours();
     db.run(`INSERT INTO activity (userId, hour, count) VALUES (?, ?, 1)
@@ -87,13 +115,12 @@ function recordActivity(userId) {
         [userId, hour]);
 }
 
-// Calcule la plage d'activité d'un membre
 function getActivityRange(userId, callback) {
     db.all(`SELECT hour, count FROM activity WHERE userId = ? ORDER BY count DESC`, [userId], (err, rows) => {
         if (!rows || rows.length === 0) return callback(null);
 
         const totalCount = rows.reduce((sum, r) => sum + r.count, 0);
-        const threshold  = totalCount * 0.1; // heures avec au moins 10% de l'activité totale
+        const threshold  = totalCount * 0.1;
 
         const activeHours = rows
             .filter(r => r.count >= threshold)
@@ -102,15 +129,13 @@ function getActivityRange(userId, callback) {
 
         if (activeHours.length === 0) return callback(null);
 
-        const min = activeHours[0];
-        const max = activeHours[activeHours.length - 1];
-        callback(`${min}h à ${max}h`);
+        callback(`${activeHours[0]}h à ${activeHours[activeHours.length - 1]}h`);
     });
 }
 
 function isAdmin(member, guild) {
     const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
-    const YOUR_USER_ID = "1108924859632848989"; // ton ID
+    const YOUR_USER_ID = "1108924859632848989";
     return member.id === guild.ownerId ||
            member.id === YOUR_USER_ID ||
            (opRole && member.roles.cache.has(opRole.id));
@@ -126,20 +151,15 @@ function getMultiplier(member, guild) {
 
 async function applyRankRoles(member, level) {
     const guildRoles = member.guild.roles.cache;
-
     for (const r of rewards) {
         const role = guildRoles.find(x => x.name === r.role);
-        if (!role) {
-            console.log(`❌ Rôle introuvable : "${r.role}"`);
-            continue;
-        }
+        if (!role) { console.log(`❌ Rôle introuvable : "${r.role}"`); continue; }
 
         const shouldHave = level >= r.minLevel && level <= r.maxLevel;
         const hasRole    = member.roles.cache.has(role.id);
 
         if (shouldHave && !hasRole)
             await member.roles.add(role).catch(err => console.log(`ERREUR ajout ${r.role} :`, err.message));
-
         if (!shouldHave && hasRole)
             await member.roles.remove(role).catch(err => console.log(`ERREUR retrait ${r.role} :`, err.message));
     }
@@ -165,10 +185,7 @@ function startVoiceXP(member, guild) {
         }
 
         const vs = freshMember.voice;
-        if (vs.selfMute || vs.selfDeaf || vs.serverMute || vs.serverDeaf) {
-            console.log(`🔇 ${freshMember.user.tag} mute/sourdine → pas d'XP`);
-            return;
-        }
+        if (vs.selfMute || vs.selfDeaf || vs.serverMute || vs.serverDeaf) return;
 
         const activeUsers = voiceChannel.members.filter(m =>
             !m.user.bot && !m.voice.selfMute && !m.voice.selfDeaf &&
@@ -185,12 +202,11 @@ function startVoiceXP(member, guild) {
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
             if (!row) {
-                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`,
-                    [userId, xpGained]);
+                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`, [userId, xpGained]);
                 return;
             }
 
-            let newXP    = row.xp + xpGained;
+            let newXP = row.xp + xpGained;
             let newLevel = row.level;
             let newCoins = row.coins;
             let leveledUp = false;
@@ -234,6 +250,32 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // ============================================================
+// ⏰ VÉRIFICATION RÔLES EXPIRÉS (toutes les minutes)
+// ============================================================
+setInterval(() => {
+    const now = Date.now();
+    db.all(`SELECT * FROM role_expirations WHERE expiresAt > 0 AND expiresAt <= ?`, [now], async (err, rows) => {
+        if (!rows || rows.length === 0) return;
+
+        for (const row of rows) {
+            const guild  = client.guilds.cache.first();
+            if (!guild) continue;
+
+            const member = guild.members.cache.get(row.userId);
+            const role   = guild.roles.cache.get(row.roleId);
+
+            if (member && role && member.roles.cache.has(role.id)) {
+                await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle expiré:", err.message));
+                const ch = getLevelUpChannel(guild);
+                if (ch) ch.send(`⏰ Le rôle **${role.name}** de <@${row.userId}> a expiré et a été retiré.`);
+            }
+
+            db.run(`DELETE FROM role_expirations WHERE userId = ? AND roleId = ?`, [row.userId, row.roleId]);
+        }
+    });
+}, 60000);
+
+// ============================================================
 // 💬 XP MESSAGE + COMMANDES + ANTI-SPAM
 // ============================================================
 const msgCooldown = new Map();
@@ -242,51 +284,51 @@ const spamData    = new Map();
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    const userId  = message.author.id;
-    const guild   = message.guild;
-    const now     = Date.now();
-    const member  = guild.members.cache.get(userId);
+    const userId    = message.author.id;
+    const guild     = message.guild;
+    const now       = Date.now();
+    const member    = guild.members.cache.get(userId);
     const isCommand = message.content.startsWith('!');
-    const levelUpChannel = getLevelUpChannel(guild);
 
-    // ---------- ANTI-SPAM ----------
-if (!isCommand) {
-    if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
-    const spam = spamData.get(userId);
-    if (now - spam.last > 500) spam.count = 0;
-    spam.last = now;
-    spam.count++;
+    // ---------- ANTI-SPAM (messages normaux uniquement) ----------
+    if (!isCommand) {
+        if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
+        const spam = spamData.get(userId);
 
-    if (spam.count === 5) {
-        message.reply("⚠️ Arrête de spam !");
-        return;
-    }
-    if (spam.count === 6) {
-        db.run(`UPDATE users SET xp = MAX(xp - 20, 0) WHERE userId = ?`, [userId]);
-        message.reply("❌ Spam détecté : **-20 XP** !");
-        return;
-    }
-    if (spam.count === 8) {
+        if (now - spam.last > 5000) spam.count = 0;
+        spam.last = now;
+        spam.count++;
+
+        if (spam.count === 5) {
+            message.reply("⚠️ Arrête de spam !");
+            return;
+        }
+        if (spam.count === 6) {
+            db.run(`UPDATE users SET xp = MAX(xp - 20, 0) WHERE userId = ?`, [userId]);
+            message.reply("❌ Spam détecté : **-20 XP** !");
+            return;
+        }
+        if (spam.count === 8) {
             message.reply("⛔ Trop de spam : ban temporaire de 1 minute !");
             await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
                 .catch(err => console.log("ERREUR BAN:", err.message));
             setTimeout(async () => {
-                await guild.bans.remove(userId)
-                    .catch(err => console.log("ERREUR UNBAN:", err.message));
+                await guild.bans.remove(userId).catch(err => console.log("ERREUR UNBAN:", err.message));
                 console.log(`✅ ${userId} débanni après 1 minute`);
             }, 60000);
             return;
         }
-    if (spam.count >= 9) {
-        message.reply("⛔ Spam excessif !");
-        return;
-    }
+        if (spam.count >= 9) {
+            message.reply("⛔ Spam excessif !");
+            return;
+        }
     }
 
     // ---------- COMMANDES ----------
     if (isCommand) {
         const args    = message.content.slice(1).trim().split(/\s+/);
         const command = args[0].toLowerCase();
+        const commandChannel = getCommandChannel(guild);
 
         // !rank (@membre optionnel)
         if (command === 'rank') {
@@ -296,7 +338,7 @@ if (!isCommand) {
             db.get(`SELECT * FROM users WHERE userId = ?`, [targetId], (err, row) => {
                 if (!row) {
                     const reply = "Cet utilisateur n'a pas encore d'XP.";
-                    if (levelUpChannel) levelUpChannel.send(reply);
+                    if (commandChannel) commandChannel.send(reply);
                     else message.reply(reply);
                     return;
                 }
@@ -304,7 +346,7 @@ if (!isCommand) {
                 getActivityRange(targetId, (range) => {
                     const activityText = range ? ` | 🕐 Actif de **${range}**` : "";
                     const reply = `📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins${activityText}`;
-                    if (levelUpChannel) levelUpChannel.send(reply);
+                    if (commandChannel) commandChannel.send(reply);
                     else message.reply(reply);
                 });
             });
@@ -315,7 +357,7 @@ if (!isCommand) {
             db.all(`SELECT * FROM users ORDER BY level DESC, xp DESC LIMIT 10`, [], (err, rows) => {
                 if (!rows || rows.length === 0) {
                     const reply = "Aucun joueur classé.";
-                    if (levelUpChannel) levelUpChannel.send(reply);
+                    if (commandChannel) commandChannel.send(reply);
                     else message.reply(reply);
                     return;
                 }
@@ -323,12 +365,12 @@ if (!isCommand) {
                 rows.forEach((u, i) => {
                     msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
                 });
-                if (levelUpChannel) levelUpChannel.send(msg);
+                if (commandChannel) commandChannel.send(msg);
                 else message.reply(msg);
             });
         }
 
-        // !bot — 5 membres les moins actifs
+        // !bot — membres les moins actifs
         if (command === 'bot') {
             guild.members.fetch().then(members => {
                 const nonBotMembers = members.filter(m => !m.user.bot);
@@ -336,7 +378,6 @@ if (!isCommand) {
                 db.all(`SELECT * FROM users ORDER BY level ASC, xp ASC`, [], (err, rows) => {
                     const registeredIds = rows.map(r => r.userId);
 
-                    // Membres sans aucune XP
                     const noXpMembers = nonBotMembers
                         .filter(m => !registeredIds.includes(m.id))
                         .map(m => ({ userId: m.id, level: 0, xp: 0 }));
@@ -347,7 +388,7 @@ if (!isCommand) {
 
                     if (allMembers.length === 0) {
                         const reply = "Aucun membre trouvé.";
-                        if (levelUpChannel) levelUpChannel.send(reply);
+                        if (commandChannel) commandChannel.send(reply);
                         else message.reply(reply);
                         return;
                     }
@@ -357,13 +398,13 @@ if (!isCommand) {
                         msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP)\n`;
                     });
 
-                    if (levelUpChannel) levelUpChannel.send(msg);
+                    if (commandChannel) commandChannel.send(msg);
                     else message.reply(msg);
                 });
             });
         }
 
-        // !setxp @membre <xp> — owner uniquement
+        // !setxp @membre <xp>
         if (command === 'setxp') {
             if (!isAdmin(member, guild)) {
                 message.reply("❌ Réservé aux OP et au créateur.");
@@ -379,9 +420,9 @@ if (!isCommand) {
                     ON CONFLICT(userId) DO UPDATE SET xp = ?`,
                 [target.id, amount, amount]);
             message.reply(`✅ XP de <@${target.id}> défini à **${amount}**.`);
-        }   
+        }
 
-        // !setlevel @membre <niveau> — owner uniquement
+        // !setlevel @membre <niveau>
         if (command === 'setlevel') {
             if (!isAdmin(member, guild)) {
                 message.reply("❌ Réservé aux OP et au créateur.");
@@ -400,48 +441,52 @@ if (!isCommand) {
             if (targetMember) applyRankRoles(targetMember, level);
             message.reply(`✅ Niveau de <@${target.id}> défini à **${level}**.`);
         }
-        // !setcoins @membre <nombre> — OP et owner
+
+        // !setcoins @membre <nombre>
         if (command === 'setcoins') {
             if (!isAdmin(member, guild)) {
                 message.reply("❌ Réservé aux OP et au créateur.");
-            return;
+                return;
             }
-        const target = message.mentions.users.first();
-        const amount = parseInt(args[2]);
-        if (!target || isNaN(amount)) {
-            message.reply("Usage : `!setcoins @membre <nombre>`");
-        return;
-        }
-                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
+            const target = message.mentions.users.first();
+            const amount = parseInt(args[2]);
+            if (!target || isNaN(amount)) {
+                message.reply("Usage : `!setcoins @membre <nombre>`");
+                return;
+            }
+            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
                     ON CONFLICT(userId) DO UPDATE SET coins = ?`,
                 [target.id, amount, amount]);
             message.reply(`✅ Coins de <@${target.id}> définis à 🪙 **${amount}**.`);
         }
-        // !shop — voir le shop
+
+        // !shop
         if (command === 'shop') {
             db.all(`SELECT * FROM shop`, [], (err, rows) => {
                 if (!rows || rows.length === 0) {
                     const reply = "🛒 Le shop est vide pour l'instant.";
-                    if (levelUpChannel) levelUpChannel.send(reply);
+                    if (commandChannel) commandChannel.send(reply);
                     else message.reply(reply);
                     return;
                 }
                 let msg = "🛒 **Shop du serveur** 🛒\n\n";
                 rows.forEach(r => {
                     const duree = r.duration === 0 ? "permanent" : `${r.duration}h`;
-                    msg += `• **${r.roleName}** — 🪙 ${r.price} coins (${duree})\n`;
+                    const desc  = r.description ? ` — *${r.description}*` : '';
+                    msg += `• **${r.roleName}** — 🪙 ${r.price} coins (${duree})${desc}\n`;
                 });
                 msg += "\nPour acheter : `!buy <nom du rôle>`";
-                if (levelUpChannel) levelUpChannel.send(msg);
+                if (commandChannel) commandChannel.send(msg);
                 else message.reply(msg);
             });
         }
 
+        // !roles
         if (command === 'roles') {
             db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], (err, rows) => {
                 if (!rows || rows.length === 0) {
                     const reply = "Tu n'as aucun rôle acheté en cours.";
-                    if (levelUpChannel) levelUpChannel.send(reply);
+                    if (commandChannel) commandChannel.send(reply);
                     else message.reply(reply);
                     return;
                 }
@@ -450,61 +495,50 @@ if (!isCommand) {
                 const nowTime = Date.now();
 
                 rows.forEach(r => {
-                    const role = guild.roles.cache.get(r.roleId);
+                    const role     = guild.roles.cache.get(r.roleId);
                     const roleName = role ? role.name : "Rôle supprimé";
-                    const remainingMs = r.expiresAt - nowTime;
-                    const remainingH  = Math.floor(remainingMs / 3600000);
-                    const remainingM  = Math.floor((remainingMs % 3600000) / 60000);
-                msg += `• **${roleName}** — ⏰ ${remainingH}h${remainingM}m restantes\n`;
+                    if (r.expiresAt < 0) {
+                        const remainingMs = -r.expiresAt;
+                        const h = Math.floor(remainingMs / 3600000);
+                        const m = Math.floor((remainingMs % 3600000) / 60000);
+                        msg += `• **${roleName}** — ⏸️ En pause (${h}h${m}m restantes)\n`;
+                    } else {
+                        const remainingMs = r.expiresAt - nowTime;
+                        const h = Math.floor(remainingMs / 3600000);
+                        const m = Math.floor((remainingMs % 3600000) / 60000);
+                        msg += `• **${roleName}** — ⏰ ${h}h${m}m restantes\n`;
+                    }
                 });
 
-                if (levelUpChannel) levelUpChannel.send(msg);
+                if (commandChannel) commandChannel.send(msg);
                 else message.reply(msg);
             });
         }
 
+        // !pause <nom du rôle>
         if (command === 'pause') {
             const roleName = args.slice(1).join(' ');
-            if (!roleName) {
-                message.reply("Usage : `!pause <nom du rôle>`");
-            return;
-            }
+            if (!roleName) { message.reply("Usage : `!pause <nom du rôle>`"); return; }
 
             db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], async (err, rows) => {
-                if (!rows || rows.length === 0) {
-                    message.reply("❌ Tu n'as aucun rôle temporaire.");
-                    return;
-                }
+                if (!rows || rows.length === 0) { message.reply("❌ Tu n'as aucun rôle temporaire."); return; }
 
                 const row = rows.find(r => {
                     const role = guild.roles.cache.get(r.roleId);
                     return role && role.name.toLowerCase() === roleName.toLowerCase();
                 });
 
-                if (!row) {
-                    message.reply(`❌ Tu n'as pas ce rôle ou il est permanent.`);
-                    return;
-                }
-
-                if (row.expiresAt < 0) {
-                    message.reply("❌ Ce rôle est déjà en pause.");
-                    return;
-                }
+                if (!row) { message.reply("❌ Tu n'as pas ce rôle ou il est permanent."); return; }
+                if (row.expiresAt < 0) { message.reply("❌ Ce rôle est déjà en pause."); return; }
 
                 const role = guild.roles.cache.get(row.roleId);
-                if (!role) {
-                    message.reply("❌ Ce rôle n'existe plus.");
-                    return;
-                }
+                if (!role) { message.reply("❌ Ce rôle n'existe plus."); return; }
 
                 const remainingMs = row.expiresAt - Date.now();
-                if (remainingMs <= 0) {
-                    message.reply("❌ Ce rôle a déjà expiré.");
-                    return;
-                }
+                if (remainingMs <= 0) { message.reply("❌ Ce rôle a déjà expiré."); return; }
 
-                await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle pause:", err.message));
-            db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
+                await member.roles.remove(role).catch(err => console.log("ERREUR pause:", err.message));
+                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
                     [-remainingMs, userId, row.roleId]);
 
                 const h = Math.floor(remainingMs / 3600000);
@@ -513,99 +547,103 @@ if (!isCommand) {
             });
         }
 
+        // !unpause <nom du rôle>
         if (command === 'unpause') {
             const roleName = args.slice(1).join(' ');
-            if (!roleName) {
-                message.reply("Usage : `!unpause <nom du rôle>`");
-                return;
-            }
+            if (!roleName) { message.reply("Usage : `!unpause <nom du rôle>`"); return; }
 
-            db.get(`SELECT * FROM role_expirations WHERE userId = ? AND expiresAt < 0 AND roleId = (SELECT roleId FROM shop WHERE LOWER(roleName) = LOWER(?))`,
-                [userId, roleName], async (err, row) => {
-                if (!row) {
-                    message.reply(`❌ Ce rôle n'est pas en pause.`);
-                    return;
-                }
+            db.all(`SELECT * FROM role_expirations WHERE userId = ? AND expiresAt < 0`, [userId], async (err, rows) => {
+                if (!rows || rows.length === 0) { message.reply("❌ Tu n'as aucun rôle en pause."); return; }
+
+                const row = rows.find(r => {
+                    const role = guild.roles.cache.get(r.roleId);
+                    return role && role.name.toLowerCase() === roleName.toLowerCase();
+                });
+
+                if (!row) { message.reply("❌ Ce rôle n'est pas en pause."); return; }
 
                 const role = guild.roles.cache.get(row.roleId);
-                if (!role) {
-                    message.reply("❌ Ce rôle n'existe plus.");
-                    return;
-                }
+                if (!role) { message.reply("❌ Ce rôle n'existe plus."); return; }
 
-                const remainingMs = -row.expiresAt; // on récupère le temps restant
+                const remainingMs  = -row.expiresAt;
                 const newExpiresAt = Date.now() + remainingMs;
 
-                await member.roles.add(role).catch(err => console.log("ERREUR ajout rôle unpause:", err.message));
-
+                await member.roles.add(role).catch(err => console.log("ERREUR unpause:", err.message));
                 db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
                     [newExpiresAt, userId, row.roleId]);
 
-                message.reply(`▶️ Le rôle **${role.name}** a repris. Il expirera dans **${Math.floor(remainingMs / 3600000)}h${Math.floor((remainingMs % 3600000) / 60000)}m**.`);
+                const h = Math.floor(remainingMs / 3600000);
+                const m = Math.floor((remainingMs % 3600000) / 60000);
+                message.reply(`▶️ Le rôle **${role.name}** a repris. Il expirera dans **${h}h${m}m**.`);
             });
         }
 
-        // !addshop <prix> @rôle — OP et owner
+        // !addshop <prix> <durée> @rôle <description>
         if (command === 'addshop') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
-            const price = parseInt(args[1]);
-            const duration = parseInt(args[2]); // en heures, optionnel
-            const roleM = message.mentions.roles.first();
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
+            const price    = parseInt(args[1]);
+            const duration = parseInt(args[2]);
+            const roleM    = message.mentions.roles.first();
+
             if (!roleM || isNaN(price)) {
-                message.reply("Usage : `!addshop <prix> <durée en heures ou 0 pour permanent> @rôle`");
+                message.reply("Usage : `!addshop <prix> <durée en heures ou 0> @rôle <description optionnelle>`");
                 return;
             }
+
+            const roleIndex   = args.findIndex(a => a.includes(roleM.id));
+            const description = args.slice(roleIndex + 1).join(' ') || '';
             const durationVal = isNaN(duration) ? 0 : duration;
-            db.run(`INSERT OR REPLACE INTO shop (roleId, roleName, price, duration) VALUES (?, ?, ?, ?)`,
-                [roleM.id, roleM.name, price, durationVal]);
+
+            db.run(`INSERT INTO shop (roleId, roleName, price, duration, description) VALUES (?, ?, ?, ?, ?)`,
+                [roleM.id, roleM.name, price, durationVal, description]);
+
             const durationText = durationVal === 0 ? "permanent" : `${durationVal}h`;
-            message.reply(`✅ **${roleM.name}** ajouté au shop pour 🪙 ${price} coins (${durationText}).`);
+            message.reply(`✅ **${roleM.name}** ajouté au shop pour 🪙 ${price} coins (${durationText})${description ? ` — ${description}` : ''}.`);
         }
 
-        // !removeshop @rôle — OP et owner
+        // !removeshop <nom du rôle>
         if (command === 'removeshop') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
-            const roleM = message.mentions.roles.first();
-            if (!roleM) {
-                message.reply("Usage : `!removeshop @rôle`");
-                return;
-            }
-            db.run(`DELETE FROM shop WHERE roleId = ?`, [roleM.id]);
-            message.reply(`✅ **${roleM.name}** retiré du shop.`);
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
+            const itemName = args.slice(1).join(' ');
+            if (!itemName) { message.reply("Usage : `!removeshop <nom du rôle>`"); return; }
+
+            db.run(`DELETE FROM shop WHERE LOWER(roleName) = LOWER(?)`, [itemName], function(err) {
+                if (this.changes === 0) message.reply(`❌ Item "${itemName}" introuvable dans le shop.`);
+                else message.reply(`✅ **${itemName}** retiré du shop.`);
+            });
+        }
+
+        // !clearshop
+        if (command === 'clearshop') {
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+            db.run(`DELETE FROM shop`);
+            message.reply("✅ Le shop a été vidé.");
         }
 
         // !buy <nom du rôle>
         if (command === 'buy') {
             const roleName = args.slice(1).join(' ');
-            if (!roleName) {
-                message.reply("Usage : `!buy <nom du rôle>`");
-                return;
-            }
-            db.get(`SELECT * FROM shop WHERE LOWER(roleName) = LOWER(?)`, [roleName], async (err, shopItem) => {
-                if (!shopItem) {
+            if (!roleName) { message.reply("Usage : `!buy <nom du rôle>`"); return; }
+
+            db.all(`SELECT * FROM shop WHERE LOWER(roleName) = LOWER(?)`, [roleName], async (err, shopItems) => {
+                if (!shopItems || shopItems.length === 0) {
                     message.reply(`❌ Rôle "${roleName}" introuvable dans le shop.`);
                     return;
                 }
+
+                const shopItem = shopItems[0];
+
                 db.get(`SELECT * FROM users WHERE userId = ?`, [userId], async (err2, row) => {
                     if (!row || row.coins < shopItem.price) {
                         message.reply(`❌ Pas assez de coins. Il te faut 🪙 **${shopItem.price}**, tu en as **${row?.coins ?? 0}**.`);
                         return;
                     }
                     const role = guild.roles.cache.get(shopItem.roleId);
-                    if (!role) {
-                        message.reply("❌ Ce rôle n'existe plus sur le serveur.");
-                        return;
-                    }
-                    if (member.roles.cache.has(role.id)) {
-                        message.reply("❌ Tu as déjà ce rôle.");
-                        return;
-                    }
+                    if (!role) { message.reply("❌ Ce rôle n'existe plus sur le serveur."); return; }
+                    if (member.roles.cache.has(role.id)) { message.reply("❌ Tu as déjà ce rôle."); return; }
+
                     await member.roles.add(role).catch(err3 => console.log("ERREUR ajout rôle shop:", err3.message));
                     db.run(`UPDATE users SET coins = coins - ? WHERE userId = ?`, [shopItem.price, userId]);
 
@@ -624,171 +662,154 @@ if (!isCommand) {
         // !idea <texte>
         if (command === 'idea') {
             db.get(`SELECT * FROM banned_ideas WHERE userId = ?`, [userId], (err, banned) => {
-                if (banned) {
-                    message.reply("❌ Tu ne peux plus soumettre d'idées.");
-                    return;
-                }
-                const idea = args.slice(1).join(' ');
-                if (!idea) {
-                    message.reply("Usage : `!idea <ton idée>`");
-                    return;
-                }
-                db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
-                    [userId, idea, Date.now()]);
-                message.reply(`💡 Idée enregistrée : **${idea}**`);
+                if (banned) { message.reply("❌ Tu ne peux plus soumettre d'idées."); return; }
+
+                const idea = args.slice(1).join(' ').toLowerCase().trim();
+                if (!idea) { message.reply("Usage : `!idea <ton idée>`"); return; }
+
+                db.get(`SELECT * FROM ideas WHERE LOWER(idea) = ?`, [idea], (err2, existing) => {
+                    if (existing) { message.reply("❌ Cette idée existe déjà dans la liste !"); return; }
+
+                    db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
+                        [userId, idea, Date.now()]);
+                    message.reply(`💡 Idée enregistrée : **${idea}**`);
+                });
             });
         }
 
-        // !ideas — voir toutes les idées (OP et owner)
+        // !ideas <page>
         if (command === 'ideas') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
-            db.all(`SELECT * FROM ideas ORDER BY timestamp DESC`, [], (err, rows) => {
-                if (!rows || rows.length === 0) {
-                    message.reply("Aucune idée enregistrée.");
-                    return;
-                }
-                let msg = "💡 **Liste des idées** 💡\n\n";
-                rows.forEach((r, i) => {
-                    const date = new Date(r.timestamp).toLocaleDateString('fr-FR');
-                    msg += `#${r.id} <@${r.userId}> (${date}) : ${r.idea}\n`;
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
+            const page    = parseInt(args[1]) || 1;
+            const perPage = 10;
+            const offset  = (page - 1) * perPage;
+
+            db.all(`SELECT COUNT(*) as total FROM ideas`, [], (err, countRows) => {
+                const total      = countRows[0].total;
+                const totalPages = Math.ceil(total / perPage);
+
+                if (total === 0) { message.reply("Aucune idée enregistrée."); return; }
+
+                db.all(`SELECT * FROM ideas ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+                    [perPage, offset], (err2, rows) => {
+
+                    let msg = `💡 **Liste des idées** 💡 — Page ${page}/${totalPages}\n\n`;
+                    rows.forEach(r => {
+                        const date = new Date(r.timestamp).toLocaleDateString('fr-FR');
+                        msg += `#${r.id} <@${r.userId}> (${date}) : ${r.idea}\n`;
+                    });
+                    if (page < totalPages) msg += `\nPage suivante : \`!ideas ${page + 1}\``;
+
+                    if (commandChannel) commandChannel.send(msg);
+                    else message.reply(msg);
                 });
-                if (levelUpChannel) levelUpChannel.send(msg);
-                else message.reply(msg);
             });
         }
 
         // !removeidea <numéro>
         if (command === 'removeidea') {
-            if (!isAdmin(member, guild)) {
-            message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
             const id = parseInt(args[1]);
-            if (isNaN(id)) {
-                message.reply("Usage : `!removeidea <numéro>`");
-                return;
-            }
+            if (isNaN(id)) { message.reply("Usage : `!removeidea <numéro>`"); return; }
+
             db.run(`DELETE FROM ideas WHERE id = ?`, [id], function(err) {
-                if (this.changes === 0) {
-                    message.reply(`❌ Idée #${id} introuvable.`);
-                } else {
-                    message.reply(`✅ Idée #${id} supprimée.`);
-                }
+                if (this.changes === 0) message.reply(`❌ Idée #${id} introuvable.`);
+                else message.reply(`✅ Idée #${id} supprimée.`);
             });
         }
 
         // !clearideas
         if (command === 'clearideas') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
             db.run(`DELETE FROM ideas`);
             message.reply("✅ Toutes les idées ont été supprimées.");
         }
 
         // !banidea @membre
         if (command === 'banidea') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
             const target = message.mentions.users.first();
-            if (!target) {
-                message.reply("Usage : `!banidea @membre`");
-                return;
-            }
+            if (!target) { message.reply("Usage : `!banidea @membre`"); return; }
+
             db.run(`INSERT OR IGNORE INTO banned_ideas (userId) VALUES (?)`, [target.id]);
             message.reply(`✅ <@${target.id}> ne peut plus soumettre d'idées.`);
         }
 
         // !unbanidea @membre
         if (command === 'unbanidea') {
-            if (!isAdmin(member, guild)) {
-                message.reply("❌ Réservé aux OP et au créateur.");
-                return;
-            }
+            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
+
             const target = message.mentions.users.first();
-            if (!target) {
-                message.reply("Usage : `!unbanidea @membre`");
-                return;
-            }
+            if (!target) { message.reply("Usage : `!unbanidea @membre`"); return; }
+
             db.run(`DELETE FROM banned_ideas WHERE userId = ?`, [target.id]);
             message.reply(`✅ <@${target.id}> peut à nouveau soumettre des idées.`);
         }
 
         // !op @membre
         if (command === 'op') {
-            if (member.id !== "1108924859632848989") {
-                message.reply("❌ Seul Eugène peut utiliser cette commande.");
-                return;
-            }
+            if (member.id !== "1108924859632848989") { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
+
             const target = message.mentions.members.first();
-            if (!target) {
-                message.reply("Usage : `!op @membre`");
-                return;
-            }
+            if (!target) { message.reply("Usage : `!op @membre`"); return; }
+
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
-            if (!opRole) {
-                message.reply("❌ Le rôle OP n'existe pas sur ce serveur.");
-                return;
-            }
+            if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
+
             await target.roles.add(opRole).catch(err => console.log("ERREUR ajout OP:", err.message));
             message.reply(`✅ <@${target.id}> est maintenant OP.`);
         }
 
         // !unop @membre
         if (command === 'unop') {
-            if (member.id !== "1108924859632848989") {
-                message.reply("❌ Seul Eugène peut utiliser cette commande.");
-                return;
-            }
+            if (member.id !== "1108924859632848989") { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
+
             const target = message.mentions.members.first();
-            if (!target) {
-                message.reply("Usage : `!unop @membre`");
-                return;
-            }
+            if (!target) { message.reply("Usage : `!unop @membre`"); return; }
+
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
-            if (!opRole) {
-                message.reply("❌ Le rôle OP n'existe pas sur ce serveur.");
-                return;
-            }
+            if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
+
             await target.roles.remove(opRole).catch(err => console.log("ERREUR retrait OP:", err.message));
             message.reply(`✅ <@${target.id}> n'est plus OP.`);
         }
 
+        // !help
         if (command === 'help') {
             const msg = `📖 **Commandes disponibles** 📖
 
-        **Pour tout le monde**
-        \`!rank\` — voir ton niveau, XP et coins
-        \`!rank @membre\` — voir le profil d'un autre membre
-        \`!top\` — top 10 des membres les plus actifs
-        \`!bot\` — les 5 membres les moins actifs
-        \`!shop\` — voir les rôles disponibles à l'achat
-        \`!buy <nom du rôle>\` — acheter un rôle
-        \`!roles\` — voir tes rôles achetés et leur durée restante
-        \`!pause <nom du rôle>\` — mettre en pause un rôle temporaire
-        \`!unpause <nom du rôle>\` — reprendre un rôle en pause
-        \`!idea <ton idée>\` — soumettre une idée
-        \`!help\` — voir cette liste
+**Pour tout le monde**
+\`!rank\` — voir ton niveau, XP et coins
+\`!rank @membre\` — voir le profil d'un autre membre
+\`!top\` — top 10 des membres les plus actifs
+\`!bot\` — les 10 membres les moins actifs
+\`!shop\` — voir les rôles disponibles à l'achat
+\`!buy <nom du rôle>\` — acheter un rôle
+\`!roles\` — voir tes rôles achetés et leur durée restante
+\`!pause <nom du rôle>\` — mettre en pause un rôle temporaire
+\`!unpause <nom du rôle>\` — reprendre un rôle en pause
+\`!idea <ton idée>\` — soumettre une idée
+\`!help\` — voir cette liste
 
-        **Réservé aux OP et au créateur**
-        \`!addshop <prix> <durée en heures ou 0> @rôle\` — ajouter un rôle au shop
-        \`!removeshop @rôle\` — retirer un rôle du shop
-        \`!setxp @membre <nombre>\` — modifier l'XP d'un membre
-        \`!setlevel @membre <nombre>\` — modifier le niveau d'un membre
-        \`!setcoins @membre <nombre>\` — modifier les coins d'un membre
-        \`!ideas\` — voir toutes les idées soumises
-        \`!removeidea <numéro>\` — supprimer une idée
-        \`!clearideas\` — supprimer toutes les idées
-        \`!banidea @membre\` — empêcher quelqu'un de soumettre des idées
-        \`!unbanidea @membre\` — réautoriser quelqu'un à soumettre des idées`;
+**Réservé aux OP et au créateur**
+\`!addshop <prix> <durée en heures ou 0> @rôle <description>\` — ajouter un rôle au shop
+\`!removeshop <nom du rôle>\` — retirer un rôle du shop
+\`!clearshop\` — vider tout le shop
+\`!setxp @membre <nombre>\` — modifier l'XP d'un membre
+\`!setlevel @membre <nombre>\` — modifier le niveau d'un membre
+\`!setcoins @membre <nombre>\` — modifier les coins d'un membre
+\`!ideas <page>\` — voir toutes les idées soumises
+\`!removeidea <numéro>\` — supprimer une idée
+\`!clearideas\` — supprimer toutes les idées
+\`!banidea @membre\` — empêcher quelqu'un de soumettre des idées
+\`!unbanidea @membre\` — réautoriser quelqu'un à soumettre des idées
+\`!op @membre\` — donner le rôle OP (Eugène uniquement)
+\`!unop @membre\` — retirer le rôle OP (Eugène uniquement)`;
 
-            if (levelUpChannel) levelUpChannel.send(msg);
+            if (commandChannel) commandChannel.send(msg);
             else message.reply(msg);
         }
 
@@ -825,8 +846,7 @@ if (!isCommand) {
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err2, row) => {
             if (!row) {
-                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`,
-                    [userId, xpGained]);
+                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`, [userId, xpGained]);
                 return;
             }
 
@@ -839,8 +859,8 @@ if (!isCommand) {
                 newLevel++;
                 newCoins += 10;
 
-                if (levelUpChannel)
-                    levelUpChannel.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                const ch = getLevelUpChannel(guild);
+                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
 
                 if (member) applyRankRoles(member, newLevel);
             }
@@ -853,32 +873,7 @@ if (!isCommand) {
 
 // ============================================================
 // 🚀 DÉMARRAGE
-// ============================================================// 
-// Vérification des rôles expirés toutes les minutes
-setInterval(() => {
-    const now = Date.now();
-    db.all(`SELECT * FROM role_expirations WHERE expiresAt <= ?`, [now], async (err, rows) => {
-        if (!rows || rows.length === 0) return;
-
-        for (const row of rows) {
-            const guild = client.guilds.cache.first();
-            if (!guild) continue;
-
-            const member = guild.members.cache.get(row.userId);
-            const role = guild.roles.cache.get(row.roleId);
-
-            if (member && role && member.roles.cache.has(role.id)) {
-                await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle expiré:", err.message));
-                console.log(`⏰ Rôle "${role.name}" expiré et retiré à ${member.user.tag}`);
-
-                const ch = getLevelUpChannel(guild);
-                if (ch) ch.send(`⏰ Le rôle **${role.name}** de <@${row.userId}> a expiré et a été retiré.`);
-            }
-
-            db.run(`DELETE FROM role_expirations WHERE userId = ? AND roleId = ?`, [row.userId, row.roleId]);
-        }
-    });
-}, 60000);
+// ============================================================
 client.once('clientReady', () => {
     console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
 
