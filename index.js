@@ -67,6 +67,18 @@ function getLevelUpChannel(guild) {
     );
 }
 
+function getLogsChannel(guild) {
+    return guild.channels.cache.find(
+        c => c.name === "logs" && c.isTextBased()
+    );
+}
+
+function sendLog(guild, message) {
+    const logsChannel = getLogsChannel(guild);
+    if (logsChannel) logsChannel.send(message);
+    console.log(message);
+}
+
 // Enregistre l'heure d'activité d'un membre
 function recordActivity(userId) {
     const hour = new Date().getHours();
@@ -98,7 +110,9 @@ function getActivityRange(userId, callback) {
 
 function isAdmin(member, guild) {
     const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
+    const YOUR_USER_ID = "1108924859632848989"; // ton ID
     return member.id === guild.ownerId ||
+           member.id === YOUR_USER_ID ||
            (opRole && member.roles.cache.has(opRole.id));
 }
 
@@ -166,7 +180,7 @@ function startVoiceXP(member, guild) {
         const peopleMultiplier = 1 + (activeUsers.size - 2) * 0.1;
         const xpGained         = Math.floor(5 * getMultiplier(freshMember, guild) * peopleMultiplier);
 
-        console.log(`🎤 +${xpGained} XP vocal pour ${freshMember.user.tag}`);
+        sendLog(guild, `🎤 +${xpGained} XP vocal pour ${freshMember.user.tag}`);
         recordActivity(userId);
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
@@ -453,13 +467,27 @@ if (!isCommand) {
             const roleName = args.slice(1).join(' ');
             if (!roleName) {
                 message.reply("Usage : `!pause <nom du rôle>`");
-                return;
+            return;
             }
 
-            db.get(`SELECT * FROM role_expirations WHERE userId = ? AND roleId = (SELECT roleId FROM shop WHERE LOWER(roleName) = LOWER(?))`,
-                [userId, roleName], async (err, row) => {
+            db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], async (err, rows) => {
+                if (!rows || rows.length === 0) {
+                    message.reply("❌ Tu n'as aucun rôle temporaire.");
+                    return;
+                }
+
+                const row = rows.find(r => {
+                    const role = guild.roles.cache.get(r.roleId);
+                    return role && role.name.toLowerCase() === roleName.toLowerCase();
+                });
+
                 if (!row) {
                     message.reply(`❌ Tu n'as pas ce rôle ou il est permanent.`);
+                    return;
+                }
+
+                if (row.expiresAt < 0) {
+                    message.reply("❌ Ce rôle est déjà en pause.");
                     return;
                 }
 
@@ -470,13 +498,18 @@ if (!isCommand) {
                 }
 
                 const remainingMs = row.expiresAt - Date.now();
+                if (remainingMs <= 0) {
+                    message.reply("❌ Ce rôle a déjà expiré.");
+                    return;
+                }
 
                 await member.roles.remove(role).catch(err => console.log("ERREUR retrait rôle pause:", err.message));
+            db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
+                    [-remainingMs, userId, row.roleId]);
 
-                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
-                    [-remainingMs, userId, row.roleId]); // on stocke le temps restant en négatif pour indiquer la pause
-
-                message.reply(`⏸️ Le rôle **${role.name}** est en pause. Il te reste **${Math.floor(remainingMs / 3600000)}h${Math.floor((remainingMs % 3600000) / 60000)}m**.`);
+                const h = Math.floor(remainingMs / 3600000);
+                const m = Math.floor((remainingMs % 3600000) / 60000);
+                message.reply(`⏸️ Le rôle **${role.name}** est en pause. Il te reste **${h}h${m}m**.`);
             });
         }
 
@@ -590,14 +623,20 @@ if (!isCommand) {
 
         // !idea <texte>
         if (command === 'idea') {
-            const idea = args.slice(1).join(' ');
-            if (!idea) {
-                message.reply("Usage : `!idea <ton idée>`");
-                return;
-            }
-            db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
-                [userId, idea, Date.now()]);
-            message.reply(`💡 Idée enregistrée : **${idea}**`);
+            db.get(`SELECT * FROM banned_ideas WHERE userId = ?`, [userId], (err, banned) => {
+                if (banned) {
+                    message.reply("❌ Tu ne peux plus soumettre d'idées.");
+                    return;
+                }
+                const idea = args.slice(1).join(' ');
+                if (!idea) {
+                    message.reply("Usage : `!idea <ton idée>`");
+                    return;
+                }
+                db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
+                    [userId, idea, Date.now()]);
+                message.reply(`💡 Idée enregistrée : **${idea}**`);
+            });
         }
 
         // !ideas — voir toutes les idées (OP et owner)
@@ -614,11 +653,71 @@ if (!isCommand) {
                 let msg = "💡 **Liste des idées** 💡\n\n";
                 rows.forEach((r, i) => {
                     const date = new Date(r.timestamp).toLocaleDateString('fr-FR');
-                    msg += `#${i + 1} <@${r.userId}> (${date}) : ${r.idea}\n`;
+                    msg += `#${r.id} <@${r.userId}> (${date}) : ${r.idea}\n`;
                 });
                 if (levelUpChannel) levelUpChannel.send(msg);
                 else message.reply(msg);
             });
+        }
+
+        // !removeidea <numéro>
+        if (command === 'removeidea') {
+            if (!isAdmin(member, guild)) {
+            message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            const id = parseInt(args[1]);
+            if (isNaN(id)) {
+                message.reply("Usage : `!removeidea <numéro>`");
+                return;
+            }
+            db.run(`DELETE FROM ideas WHERE id = ?`, [id], function(err) {
+                if (this.changes === 0) {
+                    message.reply(`❌ Idée #${id} introuvable.`);
+                } else {
+                    message.reply(`✅ Idée #${id} supprimée.`);
+                }
+            });
+        }
+
+        // !clearideas
+        if (command === 'clearideas') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            db.run(`DELETE FROM ideas`);
+            message.reply("✅ Toutes les idées ont été supprimées.");
+        }
+
+        // !banidea @membre
+        if (command === 'banidea') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            const target = message.mentions.users.first();
+            if (!target) {
+                message.reply("Usage : `!banidea @membre`");
+                return;
+            }
+            db.run(`INSERT OR IGNORE INTO banned_ideas (userId) VALUES (?)`, [target.id]);
+            message.reply(`✅ <@${target.id}> ne peut plus soumettre d'idées.`);
+        }
+
+        // !unbanidea @membre
+        if (command === 'unbanidea') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            const target = message.mentions.users.first();
+            if (!target) {
+                message.reply("Usage : `!unbanidea @membre`");
+                return;
+            }
+            db.run(`DELETE FROM banned_ideas WHERE userId = ?`, [target.id]);
+            message.reply(`✅ <@${target.id}> peut à nouveau soumettre des idées.`);
         }
 
         if (command === 'help') {
@@ -643,7 +742,11 @@ if (!isCommand) {
         \`!setxp @membre <nombre>\` — modifier l'XP d'un membre
         \`!setlevel @membre <nombre>\` — modifier le niveau d'un membre
         \`!setcoins @membre <nombre>\` — modifier les coins d'un membre
-        \`!ideas\` — voir toutes les idées soumises`;
+        \`!ideas\` — voir toutes les idées soumises
+        \`!removeidea <numéro>\` — supprimer une idée
+        \`!clearideas\` — supprimer toutes les idées
+        \`!banidea @membre\` — empêcher quelqu'un de soumettre des idées
+        \`!unbanidea @membre\` — réautoriser quelqu'un à soumettre des idées`;
 
             if (levelUpChannel) levelUpChannel.send(msg);
             else message.reply(msg);
@@ -678,6 +781,7 @@ if (!isCommand) {
         const xpGained  = Math.floor(wordCount * (member ? getMultiplier(member, guild) : 1));
 
         recordActivity(userId);
+        sendLog(guild, `💬 +${xpGained} XP message pour ${member?.user.tag ?? userId}`);
 
         db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err2, row) => {
             if (!row) {
