@@ -108,6 +108,14 @@ function sendLog(guild, msg) {
     console.log(msg);
 }
 
+function sendStartupLog(msg) {
+    console.log(msg);
+    client.guilds.cache.forEach(guild => {
+        const ch = getLogsChannel(guild);
+        if (ch) ch.send(msg);
+    });
+}
+
 function recordActivity(userId) {
     const hour = new Date().getHours();
     db.run(`INSERT INTO activity (userId, hour, count) VALUES (?, ?, 1)
@@ -153,15 +161,15 @@ async function applyRankRoles(member, level) {
     const guildRoles = member.guild.roles.cache;
     for (const r of rewards) {
         const role = guildRoles.find(x => x.name === r.role);
-        if (!role) { console.log(`❌ Rôle introuvable : "${r.role}"`); continue; }
+        if (!role) { sendLog(member.guild, `❌ Rôle introuvable : "${r.role}"`); continue; }
 
         const shouldHave = level >= r.minLevel && level <= r.maxLevel;
         const hasRole    = member.roles.cache.has(role.id);
 
         if (shouldHave && !hasRole)
-            await member.roles.add(role).catch(err => console.log(`ERREUR ajout ${r.role} :`, err.message));
+            await member.roles.add(role).catch(err => sendLog(member.guild, `❌ ERREUR ajout ${r.role} : ${err.message}`));
         if (!shouldHave && hasRole)
-            await member.roles.remove(role).catch(err => console.log(`ERREUR retrait ${r.role} :`, err.message));
+            await member.roles.remove(role).catch(err => sendLog(member.guild, `❌ ERREUR retrait ${r.role} : ${err.message}`));
     }
 }
 
@@ -231,7 +239,7 @@ function startVoiceXP(member, guild) {
     }, 30000);
 
     voiceUsers.set(userId, interval);
-    console.log(`▶️ XP vocal démarré pour ${member.user.tag}`);
+    sendLog(guild, `▶️ XP vocal démarré pour ${member.user.tag}`);
 }
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -245,7 +253,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     if (oldState.channelId && !newState.channelId && voiceUsers.has(userId)) {
         clearInterval(voiceUsers.get(userId));
         voiceUsers.delete(userId);
-        console.log(`⏹️ XP vocal arrêté pour ${member.user.tag}`);
+        sendLog(guild, `⏹️ XP vocal arrêté pour ${member.user.tag}`);
     }
 });
 
@@ -697,7 +705,7 @@ client.on('messageCreate', async (message) => {
                     let msg = `💡 **Liste des idées** 💡 — Page ${page}/${totalPages}\n\n`;
                     rows.forEach(r => {
                         const date = new Date(r.timestamp).toLocaleDateString('fr-FR');
-                        msg += `#${r.id} <@${r.userId}> (${date}) : ${r.idea}\n`;
+                        msg += `* #${r.id} <@${r.userId}> (${date}) : ${r.idea}\n`;
                     });
                     if (page < totalPages) msg += `\nPage suivante : \`!ideas ${page + 1}\``;
 
@@ -751,30 +759,40 @@ client.on('messageCreate', async (message) => {
 
         // !op @membre
         if (command === 'op') {
-            if (member.id !== "1108924859632848989") { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
-
-            const target = message.mentions.members.first();
-            if (!target) { message.reply("Usage : `!op @membre`"); return; }
+            if (member.id !== "1108924859632848989") {
+                message.reply("❌ Seul Eugène peut utiliser cette commande.");
+                return;
+            }
+            const targetUser = message.mentions.users.first();
+            if (!targetUser) { message.reply("Usage : `!op @membre`"); return; }
 
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
             if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
 
-            await target.roles.add(opRole).catch(err => console.log("ERREUR ajout OP:", err.message));
-            message.reply(`✅ <@${target.id}> est maintenant OP.`);
+            const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+            if (!targetMember) { message.reply("❌ Membre introuvable."); return; }
+
+            await targetMember.roles.add(opRole).catch(err => sendLog(guild, `❌ ERREUR ajout OP : ${err.message}`));
+            message.reply(`✅ <@${targetUser.id}> est maintenant OP.`);
         }
 
         // !unop @membre
         if (command === 'unop') {
-            if (member.id !== "1108924859632848989") { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
-
-            const target = message.mentions.members.first();
-            if (!target) { message.reply("Usage : `!unop @membre`"); return; }
+            if (member.id !== "1108924859632848989") {
+                message.reply("❌ Seul Eugène peut utiliser cette commande.");
+                return;
+            }
+            const targetUser = message.mentions.users.first();
+            if (!targetUser) { message.reply("Usage : `!unop @membre`"); return; }
 
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
             if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
 
-            await target.roles.remove(opRole).catch(err => console.log("ERREUR retrait OP:", err.message));
-            message.reply(`✅ <@${target.id}> n'est plus OP.`);
+            const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+            if (!targetMember) { message.reply("❌ Membre introuvable."); return; }
+
+            await targetMember.roles.remove(opRole).catch(err => sendLog(guild, `❌ ERREUR retrait OP : ${err.message}`));
+            message.reply(`✅ <@${targetUser.id}> n'est plus OP.`);
         }
 
         // !help
@@ -875,7 +893,7 @@ client.on('messageCreate', async (message) => {
 // 🚀 DÉMARRAGE
 // ============================================================
 client.once('clientReady', () => {
-    console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
+    sendStartupLog(`✅ Bot connecté en tant que ${client.user.tag}`);
 
     client.guilds.cache.forEach(guild => {
         guild.channels.cache
@@ -887,7 +905,7 @@ client.once('clientReady', () => {
             });
     });
 
-    console.log("🔊 Scan des vocaux terminé.");
+    sendStartupLog("🔊 Scan des vocaux terminé.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
