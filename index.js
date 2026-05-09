@@ -253,14 +253,16 @@ if (!isCommand) {
         return;
     }
     if (spam.count === 8) {
-        message.reply("⛔ Trop de spam : ban temporaire de 1 minute !");
-        await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
-            .catch(err => console.log("ERREUR BAN:", err.message));
-        setTimeout(async () => {
-            await guild.bans.remove(userId).catch(err => console.log("ERREUR UNBAN:", err.message));
-        }, 60000);
-        return;
-    }
+            message.reply("⛔ Trop de spam : ban temporaire de 1 minute !");
+            await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
+                .catch(err => console.log("ERREUR BAN:", err.message));
+            setTimeout(async () => {
+                await guild.bans.remove(userId)
+                    .catch(err => console.log("ERREUR UNBAN:", err.message));
+                console.log(`✅ ${userId} débanni après 1 minute`);
+            }, 60000);
+            return;
+        }
     if (spam.count >= 9) {
         message.reply("⛔ Spam excessif !");
         return;
@@ -584,6 +586,67 @@ if (!isCommand) {
                     }
                 });
             });
+        }
+
+        // !idea <texte>
+        if (command === 'idea') {
+            const idea = args.slice(1).join(' ');
+            if (!idea) {
+                message.reply("Usage : `!idea <ton idée>`");
+                return;
+            }
+            db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
+                [userId, idea, Date.now()]);
+            message.reply(`💡 Idée enregistrée : **${idea}**`);
+        }
+
+        // !ideas — voir toutes les idées (OP et owner)
+        if (command === 'ideas') {
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
+            db.all(`SELECT * FROM ideas ORDER BY timestamp DESC`, [], (err, rows) => {
+                if (!rows || rows.length === 0) {
+                    message.reply("Aucune idée enregistrée.");
+                    return;
+                }
+                let msg = "💡 **Liste des idées** 💡\n\n";
+                rows.forEach((r, i) => {
+                    const date = new Date(r.timestamp).toLocaleDateString('fr-FR');
+                    msg += `#${i + 1} <@${r.userId}> (${date}) : ${r.idea}\n`;
+                });
+                if (levelUpChannel) levelUpChannel.send(msg);
+                else message.reply(msg);
+            });
+        }
+
+        if (command === 'help') {
+            const msg = `📖 **Commandes disponibles** 📖
+
+        **Pour tout le monde**
+        \`!rank\` — voir ton niveau, XP et coins
+        \`!rank @membre\` — voir le profil d'un autre membre
+        \`!top\` — top 10 des membres les plus actifs
+        \`!bot\` — les 5 membres les moins actifs
+        \`!shop\` — voir les rôles disponibles à l'achat
+        \`!buy <nom du rôle>\` — acheter un rôle
+        \`!roles\` — voir tes rôles achetés et leur durée restante
+        \`!pause <nom du rôle>\` — mettre en pause un rôle temporaire
+        \`!unpause <nom du rôle>\` — reprendre un rôle en pause
+        \`!idea <ton idée>\` — soumettre une idée
+        \`!help\` — voir cette liste
+
+        **Réservé aux OP et au créateur**
+        \`!addshop <prix> <durée en heures ou 0> @rôle\` — ajouter un rôle au shop
+        \`!removeshop @rôle\` — retirer un rôle du shop
+        \`!setxp @membre <nombre>\` — modifier l'XP d'un membre
+        \`!setlevel @membre <nombre>\` — modifier le niveau d'un membre
+        \`!setcoins @membre <nombre>\` — modifier les coins d'un membre
+        \`!ideas\` — voir toutes les idées soumises`;
+
+            if (levelUpChannel) levelUpChannel.send(msg);
+            else message.reply(msg);
         }
 
         return;
