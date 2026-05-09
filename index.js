@@ -365,8 +365,8 @@ if (!isCommand) {
 
         // !setxp @membre <xp> — owner uniquement
         if (command === 'setxp') {
-            if (userId !== guild.ownerId) {
-                message.reply("❌ Commande réservée au propriétaire du serveur.");
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
                 return;
             }
             const target = message.mentions.users.first();
@@ -379,12 +379,12 @@ if (!isCommand) {
                     ON CONFLICT(userId) DO UPDATE SET xp = ?`,
                 [target.id, amount, amount]);
             message.reply(`✅ XP de <@${target.id}> défini à **${amount}**.`);
-        }
+        }   
 
         // !setlevel @membre <niveau> — owner uniquement
         if (command === 'setlevel') {
-            if (userId !== guild.ownerId) {
-                message.reply("❌ Commande réservée au propriétaire du serveur.");
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
                 return;
             }
             const target = message.mentions.users.first();
@@ -718,6 +718,46 @@ if (!isCommand) {
             }
             db.run(`DELETE FROM banned_ideas WHERE userId = ?`, [target.id]);
             message.reply(`✅ <@${target.id}> peut à nouveau soumettre des idées.`);
+        }
+
+        // !op @membre
+        if (command === 'op') {
+            if (member.id !== "1108924859632848989") {
+                message.reply("❌ Seul Eugène peut utiliser cette commande.");
+                return;
+            }
+            const target = message.mentions.members.first();
+            if (!target) {
+                message.reply("Usage : `!op @membre`");
+                return;
+            }
+            const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
+            if (!opRole) {
+                message.reply("❌ Le rôle OP n'existe pas sur ce serveur.");
+                return;
+            }
+            await target.roles.add(opRole).catch(err => console.log("ERREUR ajout OP:", err.message));
+            message.reply(`✅ <@${target.id}> est maintenant OP.`);
+        }
+
+        // !unop @membre
+        if (command === 'unop') {
+            if (member.id !== "1108924859632848989") {
+                message.reply("❌ Seul Eugène peut utiliser cette commande.");
+                return;
+            }
+            const target = message.mentions.members.first();
+            if (!target) {
+                message.reply("Usage : `!unop @membre`");
+                return;
+            }
+            const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
+            if (!opRole) {
+                message.reply("❌ Le rôle OP n'existe pas sur ce serveur.");
+                return;
+            }
+            await target.roles.remove(opRole).catch(err => console.log("ERREUR retrait OP:", err.message));
+            message.reply(`✅ <@${target.id}> n'est plus OP.`);
         }
 
         if (command === 'help') {
