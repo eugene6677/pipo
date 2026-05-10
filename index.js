@@ -21,14 +21,17 @@ const db = new sqlite3.Database('./levels.db');
 // ============================================================
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (
-        userId TEXT PRIMARY KEY,
+        userId TEXT,
+        guildId TEXT,
         xp INTEGER DEFAULT 0,
         level INTEGER DEFAULT 0,
-        coins INTEGER DEFAULT 0
+        coins INTEGER DEFAULT 0,
+        PRIMARY KEY (userId, guildId)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS shop (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guildId TEXT,
         roleId TEXT,
         roleName TEXT,
         price INTEGER,
@@ -39,33 +42,39 @@ db.serialize(() => {
 
     db.run(`CREATE TABLE IF NOT EXISTS role_expirations (
         userId TEXT,
+        guildId TEXT,
         roleId TEXT,
         expiresAt INTEGER,
-        PRIMARY KEY (userId, roleId)
+        PRIMARY KEY (userId, guildId, roleId)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS recent_messages (
         userId TEXT,
+        guildId TEXT,
         content TEXT,
         timestamp INTEGER
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS activity (
         userId TEXT,
+        guildId TEXT,
         hour INTEGER,
         count INTEGER DEFAULT 0,
-        PRIMARY KEY (userId, hour)
+        PRIMARY KEY (userId, guildId, hour)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS ideas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guildId TEXT,
         userId TEXT,
         idea TEXT,
         timestamp INTEGER
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS banned_ideas (
-        userId TEXT PRIMARY KEY
+        userId TEXT,
+        guildId TEXT,
+        PRIMARY KEY (userId, guildId)
     )`);
 });
 
@@ -81,11 +90,11 @@ const YOUR_USER_ID         = "1108924859632848989";
 // 🎁 RECOMPENSES
 // ============================================================
 const rewards = [
-    { minLevel: 1,  maxLevel: 2,           role: "Nouveau" },
-    { minLevel: 3,  maxLevel: 4,           role: "Actif"   },
-    { minLevel: 5,  maxLevel: 9,           role: "Cool"    },
-    { minLevel: 10, maxLevel: 19,          role: "OG"      },
-    { minLevel: 20, maxLevel: Infinity,    role: "Dieu"    }
+    { minLevel: 1,  maxLevel: 2,        role: "Nouveau" },
+    { minLevel: 3,  maxLevel: 4,        role: "Actif"   },
+    { minLevel: 5,  maxLevel: 9,        role: "Cool"    },
+    { minLevel: 10, maxLevel: 19,       role: "OG"      },
+    { minLevel: 20, maxLevel: Infinity, role: "Dieu"    }
 ];
 
 // ============================================================
@@ -118,15 +127,16 @@ function sendStartupLog(msg) {
     });
 }
 
-function recordActivity(userId) {
+function recordActivity(userId, guildId) {
     const hour = new Date().getHours();
-    db.run(`INSERT INTO activity (userId, hour, count) VALUES (?, ?, 1)
-            ON CONFLICT(userId, hour) DO UPDATE SET count = count + 1`,
-        [userId, hour]);
+    db.run(`INSERT INTO activity (userId, guildId, hour, count) VALUES (?, ?, ?, 1)
+            ON CONFLICT(userId, guildId, hour) DO UPDATE SET count = count + 1`,
+        [userId, guildId, hour]);
 }
 
-function getActivityRange(userId, callback) {
-    db.all(`SELECT hour, count FROM activity WHERE userId = ? ORDER BY count DESC`, [userId], (err, rows) => {
+function getActivityRange(userId, guildId, callback) {
+    db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY count DESC`,
+        [userId, guildId], (err, rows) => {
         if (!rows || rows.length === 0) return callback(null);
 
         const totalCount = rows.reduce((sum, r) => sum + r.count, 0);
@@ -179,8 +189,9 @@ async function applyRankRoles(member, level) {
 const voiceUsers = new Map();
 
 function startVoiceXP(member, guild) {
-    const userId = member.id;
-    if (voiceUsers.has(userId)) return;
+    const userId  = member.id;
+    const guildId = guild.id;
+    if (voiceUsers.has(`${guildId}-${userId}`)) return;
 
     const interval = setInterval(() => {
         const freshMember  = guild.members.cache.get(userId);
@@ -188,7 +199,7 @@ function startVoiceXP(member, guild) {
 
         if (!voiceChannel) {
             clearInterval(interval);
-            voiceUsers.delete(userId);
+            voiceUsers.delete(`${guildId}-${userId}`);
             return;
         }
 
@@ -206,11 +217,12 @@ function startVoiceXP(member, guild) {
         const xpGained         = Math.floor(5 * getMultiplier(freshMember, guild) * peopleMultiplier);
 
         sendLog(guild, `🎤 +${xpGained} XP vocal pour ${freshMember.user.tag}`);
-        recordActivity(userId);
+        recordActivity(userId, guildId);
 
-        db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err, row) => {
+        db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [userId, guildId], (err, row) => {
             if (!row) {
-                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`, [userId, xpGained]);
+                db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, ?, 0, 0)`,
+                    [userId, guildId, xpGained]);
                 return;
             }
 
@@ -226,8 +238,8 @@ function startVoiceXP(member, guild) {
                 leveledUp = true;
             }
 
-            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ?`,
-                [newXP, newLevel, newCoins, userId]);
+            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ? AND guildId = ?`,
+                [newXP, newLevel, newCoins, userId, guildId]);
 
             if (leveledUp) {
                 applyRankRoles(freshMember, newLevel);
@@ -238,21 +250,22 @@ function startVoiceXP(member, guild) {
 
     }, 30000);
 
-    voiceUsers.set(userId, interval);
+    voiceUsers.set(`${guildId}-${userId}`, interval);
     sendLog(guild, `▶️ XP vocal démarré pour ${member.user.tag}`);
 }
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-    const userId = newState.id;
-    const guild  = newState.guild;
-    const member = guild.members.cache.get(userId);
+    const userId  = newState.id;
+    const guild   = newState.guild;
+    const guildId = guild.id;
+    const member  = guild.members.cache.get(userId);
     if (!member || member.user.bot) return;
 
     if (!oldState.channelId && newState.channelId) startVoiceXP(member, guild);
 
-    if (oldState.channelId && !newState.channelId && voiceUsers.has(userId)) {
-        clearInterval(voiceUsers.get(userId));
-        voiceUsers.delete(userId);
+    if (oldState.channelId && !newState.channelId && voiceUsers.has(`${guildId}-${userId}`)) {
+        clearInterval(voiceUsers.get(`${guildId}-${userId}`));
+        voiceUsers.delete(`${guildId}-${userId}`);
         sendLog(guild, `⏹️ XP vocal arrêté pour ${member.user.tag}`);
     }
 });
@@ -266,7 +279,7 @@ setInterval(() => {
         if (!rows || rows.length === 0) return;
 
         for (const row of rows) {
-            const guild  = client.guilds.cache.first();
+            const guild = client.guilds.cache.get(row.guildId);
             if (!guild) continue;
 
             const member = guild.members.cache.get(row.userId);
@@ -278,7 +291,8 @@ setInterval(() => {
                 if (ch) ch.send(`⏰ Le rôle **${role.name}** de <@${row.userId}> a expiré et a été retiré.`);
             }
 
-            db.run(`DELETE FROM role_expirations WHERE userId = ? AND roleId = ?`, [row.userId, row.roleId]);
+            db.run(`DELETE FROM role_expirations WHERE userId = ? AND guildId = ? AND roleId = ?`,
+                [row.userId, row.guildId, row.roleId]);
         }
     });
 }, 60000);
@@ -294,25 +308,24 @@ client.on('messageCreate', async (message) => {
 
     const userId    = message.author.id;
     const guild     = message.guild;
+    const guildId   = guild.id;
     const now       = Date.now();
     const member    = guild.members.cache.get(userId);
     const isCommand = message.content.startsWith('!');
 
-    // ---------- ANTI-SPAM (messages normaux uniquement) ----------
+    // ---------- ANTI-SPAM ----------
     if (!isCommand) {
-        if (!spamData.has(userId)) spamData.set(userId, { count: 0, last: now });
-        const spam = spamData.get(userId);
+        const spamKey = `${guildId}-${userId}`;
+        if (!spamData.has(spamKey)) spamData.set(spamKey, { count: 0, last: now });
+        const spam = spamData.get(spamKey);
 
         if (now - spam.last > 5000) spam.count = 0;
         spam.last = now;
         spam.count++;
 
-        if (spam.count === 5) {
-            message.reply("⚠️ Arrête de spam !");
-            return;
-        }
+        if (spam.count === 5) { message.reply("⚠️ Arrête de spam !"); return; }
         if (spam.count === 6) {
-            db.run(`UPDATE users SET xp = MAX(xp - 20, 0) WHERE userId = ?`, [userId]);
+            db.run(`UPDATE users SET xp = MAX(xp - 20, 0) WHERE userId = ? AND guildId = ?`, [userId, guildId]);
             message.reply("❌ Spam détecté : **-20 XP** !");
             return;
         }
@@ -326,10 +339,7 @@ client.on('messageCreate', async (message) => {
             }, 60000);
             return;
         }
-        if (spam.count >= 9) {
-            message.reply("⛔ Spam excessif !");
-            return;
-        }
+        if (spam.count >= 9) { message.reply("⛔ Spam excessif !"); return; }
     }
 
     // ---------- COMMANDES ----------
@@ -338,12 +348,12 @@ client.on('messageCreate', async (message) => {
         const command        = args[0].toLowerCase();
         const commandChannel = getCommandChannel(guild);
 
-        // !rank (@membre optionnel)
+        // !rank
         if (command === 'rank') {
             const target   = message.mentions.users.first();
             const targetId = target ? target.id : userId;
 
-            db.get(`SELECT * FROM users WHERE userId = ?`, [targetId], (err, row) => {
+            db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [targetId, guildId], (err, row) => {
                 if (!row) {
                     const reply = "Cet utilisateur n'a pas encore d'XP.";
                     if (commandChannel) commandChannel.send(reply);
@@ -351,7 +361,7 @@ client.on('messageCreate', async (message) => {
                     return;
                 }
 
-                getActivityRange(targetId, (range) => {
+                getActivityRange(targetId, guildId, (range) => {
                     const activityText = range ? ` | 🕐 Actif de **${range}**` : "";
                     const reply = `📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins${activityText}`;
                     if (commandChannel) commandChannel.send(reply);
@@ -362,7 +372,8 @@ client.on('messageCreate', async (message) => {
 
         // !top
         if (command === 'top') {
-            db.all(`SELECT * FROM users ORDER BY level DESC, xp DESC LIMIT 10`, [], (err, rows) => {
+            db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level DESC, xp DESC LIMIT 10`,
+                [guildId], (err, rows) => {
                 if (!rows || rows.length === 0) {
                     const reply = "Aucun joueur classé.";
                     if (commandChannel) commandChannel.send(reply);
@@ -383,7 +394,8 @@ client.on('messageCreate', async (message) => {
             guild.members.fetch().then(members => {
                 const nonBotMembers = members.filter(m => !m.user.bot);
 
-                db.all(`SELECT * FROM users ORDER BY level ASC, xp ASC`, [], (err, rows) => {
+                db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level ASC, xp ASC`,
+                    [guildId], (err, rows) => {
                     const registeredIds = rows.map(r => r.userId);
 
                     const noXpMembers = nonBotMembers
@@ -412,56 +424,51 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !setxp @membre <xp>
+        // !setxp
         if (command === 'setxp') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
             const target = message.mentions.users.first();
             const amount = parseInt(args[2]);
             if (!target || isNaN(amount)) { message.reply("Usage : `!setxp @membre <xp>`"); return; }
-            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)
-                    ON CONFLICT(userId) DO UPDATE SET xp = ?`,
-                [target.id, amount, amount]);
+            db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, ?, 0, 0)
+                    ON CONFLICT(userId, guildId) DO UPDATE SET xp = ?`,
+                [target.id, guildId, amount, amount]);
             message.reply(`✅ XP de <@${target.id}> défini à **${amount}**.`);
         }
 
-        // !setlevel @membre <niveau>
+        // !setlevel
         if (command === 'setlevel') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
             const target = message.mentions.users.first();
             const level  = parseInt(args[2]);
             if (!target || isNaN(level)) { message.reply("Usage : `!setlevel @membre <niveau>`"); return; }
-            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, ?, 0)
-                    ON CONFLICT(userId) DO UPDATE SET level = ?, xp = 0`,
-                [target.id, level, level]);
+            db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, 0, ?, 0)
+                    ON CONFLICT(userId, guildId) DO UPDATE SET level = ?, xp = 0`,
+                [target.id, guildId, level, level]);
             const targetMember = guild.members.cache.get(target.id);
             if (targetMember) applyRankRoles(targetMember, level);
             message.reply(`✅ Niveau de <@${target.id}> défini à **${level}**.`);
         }
 
-        // !setcoins @membre <nombre>
+        // !setcoins
         if (command === 'setcoins') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
             const target = message.mentions.users.first();
             const amount = parseInt(args[2]);
             if (!target || isNaN(amount)) { message.reply("Usage : `!setcoins @membre <nombre>`"); return; }
-            db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, 0, 0, ?)
-                    ON CONFLICT(userId) DO UPDATE SET coins = ?`,
-                [target.id, amount, amount]);
+            db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, 0, 0, ?)
+                    ON CONFLICT(userId, guildId) DO UPDATE SET coins = ?`,
+                [target.id, guildId, amount, amount]);
             message.reply(`✅ Coins de <@${target.id}> définis à 🪙 **${amount}**.`);
         }
 
         // !shop
         if (command === 'shop') {
-            db.all(`SELECT * FROM shop ORDER BY category, roleName`, [], (err, rows) => {
-                if (!rows || rows.length === 0) {
-                    const reply = "🛒 Le shop est vide pour l'instant.";
-                    if (commandChannel) commandChannel.send(reply);
-                    else message.reply(reply);
-                    return;
-                }
+            db.all(`SELECT * FROM shop WHERE guildId = ? ORDER BY category, roleName`,
+                [guildId], (err, rows) => {
 
                 const categories = { deco: {}, demande: {}, perms: {} };
-                rows.forEach(r => {
+                (rows || []).forEach(r => {
                     const cat = r.category || 'deco';
                     if (!categories[cat]) categories[cat] = {};
                     if (!categories[cat][r.roleName]) categories[cat][r.roleName] = [];
@@ -477,8 +484,12 @@ client.on('messageCreate', async (message) => {
                 let msg = "🛒 **Shop du serveur** 🛒\n";
 
                 Object.entries(categories).forEach(([cat, roles]) => {
-                    if (Object.keys(roles).length === 0) return;
                     msg += `\n**${categoryNames[cat]}**\n`;
+
+                    if (Object.keys(roles).length === 0) {
+                        msg += `*Aucun rôle disponible dans cette catégorie actuellement.*\n`;
+                        return;
+                    }
 
                     Object.entries(roles).forEach(([roleName, items]) => {
                         if (items.length === 1) {
@@ -505,7 +516,8 @@ client.on('messageCreate', async (message) => {
 
         // !roles
         if (command === 'roles') {
-            db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], (err, rows) => {
+            db.all(`SELECT * FROM role_expirations WHERE userId = ? AND guildId = ?`,
+                [userId, guildId], (err, rows) => {
                 if (!rows || rows.length === 0) {
                     const reply = "Tu n'as aucun rôle acheté en cours.";
                     if (commandChannel) commandChannel.send(reply);
@@ -537,12 +549,13 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !pause <nom du rôle>
+        // !pause
         if (command === 'pause') {
             const roleName = args.slice(1).join(' ');
             if (!roleName) { message.reply("Usage : `!pause <nom du rôle>`"); return; }
 
-            db.all(`SELECT * FROM role_expirations WHERE userId = ?`, [userId], async (err, rows) => {
+            db.all(`SELECT * FROM role_expirations WHERE userId = ? AND guildId = ?`,
+                [userId, guildId], async (err, rows) => {
                 if (!rows || rows.length === 0) { message.reply("❌ Tu n'as aucun rôle temporaire."); return; }
 
                 const row = rows.find(r => {
@@ -560,8 +573,8 @@ client.on('messageCreate', async (message) => {
                 if (remainingMs <= 0) { message.reply("❌ Ce rôle a déjà expiré."); return; }
 
                 await member.roles.remove(role).catch(err => sendLog(guild, `❌ ERREUR pause : ${err.message}`));
-                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
-                    [-remainingMs, userId, row.roleId]);
+                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND guildId = ? AND roleId = ?`,
+                    [-remainingMs, userId, guildId, row.roleId]);
 
                 const h = Math.floor(remainingMs / 3600000);
                 const m = Math.floor((remainingMs % 3600000) / 60000);
@@ -569,12 +582,13 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !unpause <nom du rôle>
+        // !unpause
         if (command === 'unpause') {
             const roleName = args.slice(1).join(' ');
             if (!roleName) { message.reply("Usage : `!unpause <nom du rôle>`"); return; }
 
-            db.all(`SELECT * FROM role_expirations WHERE userId = ? AND expiresAt < 0`, [userId], async (err, rows) => {
+            db.all(`SELECT * FROM role_expirations WHERE userId = ? AND guildId = ? AND expiresAt < 0`,
+                [userId, guildId], async (err, rows) => {
                 if (!rows || rows.length === 0) { message.reply("❌ Tu n'as aucun rôle en pause."); return; }
 
                 const row = rows.find(r => {
@@ -591,8 +605,8 @@ client.on('messageCreate', async (message) => {
                 const newExpiresAt = Date.now() + remainingMs;
 
                 await member.roles.add(role).catch(err => sendLog(guild, `❌ ERREUR unpause : ${err.message}`));
-                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND roleId = ?`,
-                    [newExpiresAt, userId, row.roleId]);
+                db.run(`UPDATE role_expirations SET expiresAt = ? WHERE userId = ? AND guildId = ? AND roleId = ?`,
+                    [newExpiresAt, userId, guildId, row.roleId]);
 
                 const h = Math.floor(remainingMs / 3600000);
                 const m = Math.floor((remainingMs % 3600000) / 60000);
@@ -600,7 +614,7 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !addshop <prix> <durée> <catégorie> @rôle <description>
+        // !addshop
         if (command === 'addshop') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
 
@@ -611,7 +625,7 @@ client.on('messageCreate', async (message) => {
             const validCategories = ['deco', 'demande', 'perms'];
 
             if (!roleM || isNaN(price) || !validCategories.includes(category)) {
-                message.reply("Usage : `!addshop <prix> <durée ou 0> <catégorie : deco/demande/perms> @rôle <description optionnelle>`");
+                message.reply("Usage : `!addshop <prix> <durée ou 0> <deco/demande/perms> @rôle <description optionnelle>`");
                 return;
             }
 
@@ -619,21 +633,22 @@ client.on('messageCreate', async (message) => {
             const description = args.slice(roleIndex + 1).join(' ') || '';
             const durationVal = isNaN(duration) ? 0 : duration;
 
-            db.run(`INSERT INTO shop (roleId, roleName, price, duration, description, category) VALUES (?, ?, ?, ?, ?, ?)`,
-                [roleM.id, roleM.name, price, durationVal, description, category]);
+            db.run(`INSERT INTO shop (guildId, roleId, roleName, price, duration, description, category) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [guildId, roleM.id, roleM.name, price, durationVal, description, category]);
 
             const durationText = durationVal === 0 ? "permanent" : `${durationVal}h`;
             message.reply(`✅ **${roleM.name}** ajouté au shop (${category}) pour 🪙 ${price} coins (${durationText})${description ? ` — ${description}` : ''}.`);
         }
 
-        // !removeshop <nom du rôle>
+        // !removeshop
         if (command === 'removeshop') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
 
             const itemName = args.slice(1).join(' ');
             if (!itemName) { message.reply("Usage : `!removeshop <nom du rôle>`"); return; }
 
-            db.run(`DELETE FROM shop WHERE LOWER(roleName) = LOWER(?)`, [itemName], function(err) {
+            db.run(`DELETE FROM shop WHERE guildId = ? AND LOWER(roleName) = LOWER(?)`,
+                [guildId, itemName], function(err) {
                 if (this.changes === 0) message.reply(`❌ Item "${itemName}" introuvable dans le shop.`);
                 else message.reply(`✅ **${itemName}** retiré du shop.`);
             });
@@ -642,16 +657,17 @@ client.on('messageCreate', async (message) => {
         // !clearshop
         if (command === 'clearshop') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
-            db.run(`DELETE FROM shop`);
+            db.run(`DELETE FROM shop WHERE guildId = ?`, [guildId]);
             message.reply("✅ Le shop a été vidé.");
         }
 
-        // !buy <nom du rôle>
+        // !buy
         if (command === 'buy') {
             const roleName = args.slice(1).join(' ');
             if (!roleName) { message.reply("Usage : `!buy <nom du rôle>`"); return; }
 
-            db.all(`SELECT * FROM shop WHERE LOWER(roleName) = LOWER(?)`, [roleName], async (err, shopItems) => {
+            db.all(`SELECT * FROM shop WHERE guildId = ? AND LOWER(roleName) = LOWER(?)`,
+                [guildId, roleName], async (err, shopItems) => {
                 if (!shopItems || shopItems.length === 0) {
                     message.reply(`❌ Rôle "${roleName}" introuvable dans le shop.`);
                     return;
@@ -659,7 +675,7 @@ client.on('messageCreate', async (message) => {
 
                 const shopItem = shopItems[0];
 
-                db.get(`SELECT * FROM users WHERE userId = ?`, [userId], async (err2, row) => {
+                db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [userId, guildId], async (err2, row) => {
                     if (!row || row.coins < shopItem.price) {
                         message.reply(`❌ Pas assez de coins. Il te faut 🪙 **${shopItem.price}**, tu en as **${row?.coins ?? 0}**.`);
                         return;
@@ -670,23 +686,23 @@ client.on('messageCreate', async (message) => {
                     if (member.roles.cache.has(role.id)) { message.reply("❌ Tu as déjà ce rôle."); return; }
 
                     await member.roles.add(role).catch(err3 => sendLog(guild, `❌ ERREUR ajout rôle shop : ${err3.message}`));
-                    db.run(`UPDATE users SET coins = coins - ? WHERE userId = ?`, [shopItem.price, userId]);
+                    db.run(`UPDATE users SET coins = coins - ? WHERE userId = ? AND guildId = ?`,
+                        [shopItem.price, userId, guildId]);
 
                     if (shopItem.duration > 0) {
                         const expiresAt = now + shopItem.duration * 3600000;
-                        db.run(`INSERT OR REPLACE INTO role_expirations (userId, roleId, expiresAt) VALUES (?, ?, ?)`,
-                            [userId, shopItem.roleId, expiresAt]);
+                        db.run(`INSERT OR REPLACE INTO role_expirations (userId, guildId, roleId, expiresAt) VALUES (?, ?, ?, ?)`,
+                            [userId, guildId, shopItem.roleId, expiresAt]);
                         message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins ! Il expirera dans **${shopItem.duration}h**.`);
                     } else {
                         message.reply(`✅ Tu as acheté le rôle **${role.name}** pour 🪙 ${shopItem.price} coins !`);
                     }
 
-                    // Créer un ticket si rôle de demande
+                    // Ticket automatique pour rôle de demande
                     if (shopItem.category === 'demande') {
                         const ticketCategory = guild.channels.cache.find(
                             c => c.name.toLowerCase() === 'tickets' && c.type === 4
                         );
-
                         const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
 
                         const ticketChannel = await guild.channels.create({
@@ -698,10 +714,7 @@ client.on('messageCreate', async (message) => {
                                 { id: userId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
                                 ...(opRole ? [{ id: opRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }] : [])
                             ]
-                        }).catch(err => {
-                            sendLog(guild, `❌ ERREUR création ticket : ${err.message}`);
-                            return null;
-                        });
+                        }).catch(err => { sendLog(guild, `❌ ERREUR création ticket : ${err.message}`); return null; });
 
                         if (ticketChannel) {
                             ticketChannel.send(
@@ -715,25 +728,25 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !idea <texte>
+        // !idea
         if (command === 'idea') {
-            db.get(`SELECT * FROM banned_ideas WHERE userId = ?`, [userId], (err, banned) => {
+            db.get(`SELECT * FROM banned_ideas WHERE userId = ? AND guildId = ?`, [userId, guildId], (err, banned) => {
                 if (banned) { message.reply("❌ Tu ne peux plus soumettre d'idées."); return; }
 
                 const idea = args.slice(1).join(' ').toLowerCase().trim();
                 if (!idea) { message.reply("Usage : `!idea <ton idée>`"); return; }
 
-                db.get(`SELECT * FROM ideas WHERE LOWER(idea) = ?`, [idea], (err2, existing) => {
+                db.get(`SELECT * FROM ideas WHERE guildId = ? AND LOWER(idea) = ?`, [guildId, idea], (err2, existing) => {
                     if (existing) { message.reply("❌ Cette idée existe déjà dans la liste !"); return; }
 
-                    db.run(`INSERT INTO ideas (userId, idea, timestamp) VALUES (?, ?, ?)`,
-                        [userId, idea, Date.now()]);
+                    db.run(`INSERT INTO ideas (guildId, userId, idea, timestamp) VALUES (?, ?, ?, ?)`,
+                        [guildId, userId, idea, Date.now()]);
                     message.reply(`💡 Idée enregistrée : **${idea}**`);
                 });
             });
         }
 
-        // !ideas <page>
+        // !ideas
         if (command === 'ideas') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
 
@@ -741,14 +754,14 @@ client.on('messageCreate', async (message) => {
             const perPage = 10;
             const offset  = (page - 1) * perPage;
 
-            db.all(`SELECT COUNT(*) as total FROM ideas`, [], (err, countRows) => {
+            db.all(`SELECT COUNT(*) as total FROM ideas WHERE guildId = ?`, [guildId], (err, countRows) => {
                 const total      = countRows[0].total;
                 const totalPages = Math.ceil(total / perPage);
 
                 if (total === 0) { message.reply("Aucune idée enregistrée."); return; }
 
-                db.all(`SELECT * FROM ideas ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
-                    [perPage, offset], (err2, rows) => {
+                db.all(`SELECT * FROM ideas WHERE guildId = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+                    [guildId, perPage, offset], (err2, rows) => {
 
                     let msg = `💡 **Liste des idées** 💡 — Page ${page}/${totalPages}\n\n`;
                     rows.forEach(r => {
@@ -763,14 +776,14 @@ client.on('messageCreate', async (message) => {
             });
         }
 
-        // !removeidea <numéro>
+        // !removeidea
         if (command === 'removeidea') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
 
             const id = parseInt(args[1]);
             if (isNaN(id)) { message.reply("Usage : `!removeidea <numéro>`"); return; }
 
-            db.run(`DELETE FROM ideas WHERE id = ?`, [id], function(err) {
+            db.run(`DELETE FROM ideas WHERE id = ? AND guildId = ?`, [id, guildId], function(err) {
                 if (this.changes === 0) message.reply(`❌ Idée #${id} introuvable.`);
                 else message.reply(`✅ Idée #${id} supprimée.`);
             });
@@ -779,62 +792,50 @@ client.on('messageCreate', async (message) => {
         // !clearideas
         if (command === 'clearideas') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
-            db.run(`DELETE FROM ideas`);
+            db.run(`DELETE FROM ideas WHERE guildId = ?`, [guildId]);
             message.reply("✅ Toutes les idées ont été supprimées.");
         }
 
-        // !banidea @membre
+        // !banidea
         if (command === 'banidea') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
-
             const target = message.mentions.users.first();
             if (!target) { message.reply("Usage : `!banidea @membre`"); return; }
-
-            db.run(`INSERT OR IGNORE INTO banned_ideas (userId) VALUES (?)`, [target.id]);
+            db.run(`INSERT OR IGNORE INTO banned_ideas (userId, guildId) VALUES (?, ?)`, [target.id, guildId]);
             message.reply(`✅ <@${target.id}> ne peut plus soumettre d'idées.`);
         }
 
-        // !unbanidea @membre
+        // !unbanidea
         if (command === 'unbanidea') {
             if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
-
             const target = message.mentions.users.first();
             if (!target) { message.reply("Usage : `!unbanidea @membre`"); return; }
-
-            db.run(`DELETE FROM banned_ideas WHERE userId = ?`, [target.id]);
+            db.run(`DELETE FROM banned_ideas WHERE userId = ? AND guildId = ?`, [target.id, guildId]);
             message.reply(`✅ <@${target.id}> peut à nouveau soumettre des idées.`);
         }
 
-        // !op @membre
+        // !op
         if (command === 'op') {
             if (member.id !== YOUR_USER_ID) { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
-
             const targetUser = message.mentions.users.first();
             if (!targetUser) { message.reply("Usage : `!op @membre`"); return; }
-
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
             if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
-
             const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
             if (!targetMember) { message.reply("❌ Membre introuvable."); return; }
-
             await targetMember.roles.add(opRole).catch(err => sendLog(guild, `❌ ERREUR ajout OP : ${err.message}`));
             message.reply(`✅ <@${targetUser.id}> est maintenant OP.`);
         }
 
-        // !unop @membre
+        // !unop
         if (command === 'unop') {
             if (member.id !== YOUR_USER_ID) { message.reply("❌ Seul Eugène peut utiliser cette commande."); return; }
-
             const targetUser = message.mentions.users.first();
             if (!targetUser) { message.reply("Usage : `!unop @membre`"); return; }
-
             const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
             if (!opRole) { message.reply("❌ Le rôle OP n'existe pas sur ce serveur."); return; }
-
             const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
             if (!targetMember) { message.reply("❌ Membre introuvable."); return; }
-
             await targetMember.roles.remove(opRole).catch(err => sendLog(guild, `❌ ERREUR retrait OP : ${err.message}`));
             message.reply(`✅ <@${targetUser.id}> n'est plus OP.`);
         }
@@ -878,8 +879,8 @@ client.on('messageCreate', async (message) => {
     }
 
     // ---------- XP NORMAL ----------
-    if (msgCooldown.has(userId) && now - msgCooldown.get(userId) < 2000) return;
-    msgCooldown.set(userId, now);
+    if (msgCooldown.has(`${guildId}-${userId}`) && now - msgCooldown.get(`${guildId}-${userId}`) < 2000) return;
+    msgCooldown.set(`${guildId}-${userId}`, now);
 
     const totalLetters = message.content.replace(/\s/g, '').length;
     if (totalLetters < 5) return;
@@ -887,27 +888,28 @@ client.on('messageCreate', async (message) => {
     const content24h = message.content.trim().toLowerCase();
     const dayAgo     = now - 86400000;
 
-    db.get(`SELECT COUNT(*) as cnt FROM recent_messages WHERE userId = ? AND content = ? AND timestamp > ?`,
-        [userId, content24h, dayAgo], (err, res) => {
+    db.get(`SELECT COUNT(*) as cnt FROM recent_messages WHERE userId = ? AND guildId = ? AND content = ? AND timestamp > ?`,
+        [userId, guildId, content24h, dayAgo], (err, res) => {
 
         if (res && res.cnt >= 2) {
             console.log(`⛔ Message répété ignoré pour ${userId}`);
             return;
         }
 
-        db.run(`INSERT INTO recent_messages (userId, content, timestamp) VALUES (?, ?, ?)`,
-            [userId, content24h, now]);
+        db.run(`INSERT INTO recent_messages (userId, guildId, content, timestamp) VALUES (?, ?, ?, ?)`,
+            [userId, guildId, content24h, now]);
         db.run(`DELETE FROM recent_messages WHERE timestamp < ?`, [dayAgo]);
 
         const wordCount = Math.min(message.content.trim().split(/\s+/).length, 10);
         const xpGained  = Math.floor(wordCount * (member ? getMultiplier(member, guild) : 1));
 
-        recordActivity(userId);
+        recordActivity(userId, guildId);
         sendLog(guild, `💬 +${xpGained} XP message pour ${member?.user.tag ?? userId}`);
 
-        db.get(`SELECT * FROM users WHERE userId = ?`, [userId], (err2, row) => {
+        db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [userId, guildId], (err2, row) => {
             if (!row) {
-                db.run(`INSERT INTO users (userId, xp, level, coins) VALUES (?, ?, 0, 0)`, [userId, xpGained]);
+                db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, ?, 0, 0)`,
+                    [userId, guildId, xpGained]);
                 return;
             }
 
@@ -926,8 +928,8 @@ client.on('messageCreate', async (message) => {
                 if (member) applyRankRoles(member, newLevel);
             }
 
-            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ?`,
-                [newXP, newLevel, newCoins, userId]);
+            db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ? AND guildId = ?`,
+                [newXP, newLevel, newCoins, userId, guildId]);
         });
     });
 });
