@@ -579,6 +579,11 @@ async function handleMessage(message) {
             else message.reply(msg);
         }
 
+        // !bouzelouf
+        if (command === 'bouzelouf') {
+            message.channel.send("https://vm.tiktok.com/znrgljpf9/");
+        }
+
         return;
     }
 
