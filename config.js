@@ -6,6 +6,7 @@ const LEVELUP_CHANNEL_NAME = "🔆niveau🔆";
 const COMMAND_CHANNEL_NAME = "commande";
 const ADMIN_ROLE_NAME      = "OP";
 const YOUR_USER_ID         = "1108924859632848989";
+const SUGGESTIONS_CHANNEL_NAME = "suggestions-idées";
 
 const rewards = [
     { minLevel: 1,  maxLevel: 2,        role: "Nouveau" },

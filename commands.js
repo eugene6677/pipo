@@ -6,7 +6,7 @@ const db = require('./db');
 const { ADMIN_ROLE_NAME, YOUR_USER_ID } = require('./config');
 const {
     getCommandChannel, getLevelUpChannel, sendLog,
-    isAdmin, getMultiplier, applyRankRoles, getActivityRange, recordActivity
+    isAdmin, getMultiplier, applyRankRoles, getActivityRange, recordActivity, getSuggestionsChannel
 } = require('./utils');
 
 const msgCooldown = new Map();
@@ -214,7 +214,7 @@ async function handleMessage(message) {
                     });
                 });
 
-                msg += "\nPour acheter : `!buy <nom du rôle>`";
+                msg += "\nPour acheter : `!buy <nom du rôle>` ou `!buy <nom du rôle> <numéro>` si plusieurs options";
                 if (commandChannel) commandChannel.send(msg);
                 else message.reply(msg);
             });
@@ -469,7 +469,12 @@ async function handleMessage(message) {
 
                     db.run(`INSERT INTO ideas (guildId, userId, idea, timestamp) VALUES (?, ?, ?, ?)`,
                         [guildId, userId, idea, Date.now()]);
-                    message.reply(`💡 Idée enregistrée : **${idea}**`);
+
+                    const suggestionsChannel = getSuggestionsChannel(guild);
+                    const confirmation = `💡 Idée enregistrée par <@${userId}> : **${idea}**`;
+
+                    if (suggestionsChannel) suggestionsChannel.send(confirmation);
+                    message.reply(`💡 Idée enregistrée !`);
                 });
             });
         }
@@ -578,7 +583,7 @@ async function handleMessage(message) {
                 "`!top` — top 10 des membres les plus actifs\n" +
                 "`!bot` — les 10 membres les moins actifs\n" +
                 "`!shop` — voir les rôles disponibles à l'achat\n" +
-                "`!buy <nom du rôle>` — acheter un rôle\n" +
+                "`!buy <nom du rôle>` ou `!buy <nom du rôle> <numéro>` — acheter un rôle\n" +
                 "`!roles` — voir tes rôles achetés et leur durée restante\n" +
                 "`!pause <nom du rôle>` — mettre en pause un rôle temporaire\n" +
                 "`!unpause <nom du rôle>` — reprendre un rôle en pause\n" +

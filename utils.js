@@ -71,6 +71,10 @@ function getMultiplier(member, guild) {
     return multiplier;
 }
 
+function getSuggestionsChannel(guild) {
+    return guild.channels.cache.find(c => c.name === SUGGESTIONS_CHANNEL_NAME && c.isTextBased());
+}
+
 async function applyRankRoles(member, level) {
     const guildRoles = member.guild.roles.cache;
     for (const r of rewards) {
