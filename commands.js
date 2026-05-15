@@ -23,7 +23,8 @@ async function handleMessage(message) {
     const isCommand = message.content.startsWith('!');
 
     // ---------- ANTI-SPAM ----------
-    if (!isCommand) {
+    const SPAM_EXCEPTIONS = ['1344289559667540009']; // Simon
+    if (!isCommand && !SPAM_EXCEPTIONS.includes(userId)) {
         const spamKey = `${guildId}-${userId}`;
         if (!spamData.has(spamKey)) spamData.set(spamKey, { count: 0, last: now });
         const spam = spamData.get(spamKey);
@@ -368,8 +369,14 @@ async function handleMessage(message) {
 
         // !buy
         if (command === 'buy') {
-            const roleName = args.slice(1).join(' ');
-            if (!roleName) { message.reply("Usage : `!buy <nom du rôle>`"); return; }
+            const lastArg    = args[args.length - 1];
+            const choiceNum  = parseInt(lastArg);
+            const hasChoice  = !isNaN(choiceNum);
+            const roleName   = hasChoice
+                ? args.slice(1, -1).join(' ')
+                : args.slice(1).join(' ');
+
+            if (!roleName) { message.reply("Usage : `!buy <nom du rôle>` ou `!buy <nom du rôle> <numéro>`"); return; }
 
             db.all(`SELECT * FROM shop WHERE guildId = ? AND LOWER(roleName) = LOWER(?)`,
                 [guildId, roleName], async (err, shopItems) => {
@@ -378,7 +385,24 @@ async function handleMessage(message) {
                     return;
                 }
 
-                const shopItem = shopItems[0];
+                // Plusieurs options → demander un numéro si pas fourni
+                if (shopItems.length > 1 && !hasChoice) {
+                    let msg = `🛒 Plusieurs options pour **${roleName}** :\n\n`;
+                    shopItems.forEach((item, i) => {
+                        const duree = item.duration === 0 ? "permanent" : `${item.duration}h`;
+                        msg += `**${i + 1}.** 🪙 ${item.price} coins (${duree})\n`;
+                    });
+                    msg += `\nPour choisir : \`!buy ${roleName} <numéro>\``;
+                    message.reply(msg);
+                    return;
+                }
+
+                const shopItem = hasChoice ? shopItems[choiceNum - 1] : shopItems[0];
+
+                if (!shopItem) {
+                    message.reply(`❌ Numéro invalide, choisis entre 1 et ${shopItems.length}.`);
+                    return;
+                }
 
                 db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [userId, guildId], async (err2, row) => {
                     if (!row || row.coins < shopItem.price) {
