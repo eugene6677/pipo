@@ -471,6 +471,7 @@ async function handleMessage(message) {
                         [guildId, userId, idea, Date.now()]);
 
                     const suggestionsChannel = getSuggestionsChannel(guild);
+                    console.log("Salon suggestions:", suggestionsChannel?.name ?? "introuvable");
                     const confirmation = `💡 Idée enregistrée par <@${userId}> : **${idea}**`;
 
                     if (suggestionsChannel) suggestionsChannel.send(confirmation);
