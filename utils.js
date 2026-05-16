@@ -72,7 +72,8 @@ function getMultiplier(member, guild) {
 }
 
 function getSuggestionsChannel(guild) {
-    return guild.channels.cache.find(c => c.name === SUGGESTIONS_CHANNEL_NAME && c.isTextBased());
+    guild.channels.cache.forEach(c => console.log(`Canal: "${c.name}"`));
+    return guild.channels.cache.find(c => c.name === "suggestions-idées" && c.isTextBased());
 }
 
 async function applyRankRoles(member, level) {
