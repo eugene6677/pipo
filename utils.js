@@ -3,7 +3,7 @@
 // ============================================================
 
 const db = require('./db');
-const { LEVELUP_CHANNEL_NAME, COMMAND_CHANNEL_NAME, ADMIN_ROLE_NAME, YOUR_USER_ID, rewards } = require('./config');
+const { LEVELUP_CHANNEL_NAME, COMMAND_CHANNEL_NAME, ADMIN_ROLE_NAME, YOUR_USER_ID, rewards, SUGGESTIONS_CHANNEL_NAME } = require('./config');
 
 function getLevelUpChannel(guild) {
     return guild.channels.cache.find(c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased());
