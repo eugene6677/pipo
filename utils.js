@@ -101,5 +101,6 @@ module.exports = {
     getActivityRange,
     isAdmin,
     getMultiplier,
-    applyRankRoles
+    applyRankRoles,
+    getSuggestionsChannel
 };
