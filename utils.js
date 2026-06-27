@@ -72,7 +72,6 @@ function getMultiplier(member, guild) {
 }
 
 function getSuggestionsChannel(guild) {
-    guild.channels.cache.forEach(c => console.log(`Canal: "${c.name}"`));
     return guild.channels.cache.find(c => c.name === "suggestions-idées" && c.isTextBased());
 }
 
