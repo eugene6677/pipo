@@ -348,16 +348,88 @@ async function handleMessage(message) {
 
         // !removeshop
         if (command === 'removeshop') {
-            if (!isAdmin(member, guild)) { message.reply("❌ Réservé aux OP et au créateur."); return; }
 
-            const itemName = args.slice(1).join(' ');
-            if (!itemName) { message.reply("Usage : `!removeshop <nom du rôle>`"); return; }
+            if (!isAdmin(member, guild)) {
+                message.reply("❌ Réservé aux OP et au créateur.");
+                return;
+            }
 
-            db.run(`DELETE FROM shop WHERE guildId = ? AND LOWER(roleName) = LOWER(?)`,
-                [guildId, itemName], function(err) {
-                if (this.changes === 0) message.reply(`❌ Item "${itemName}" introuvable dans le shop.`);
-                else message.reply(`✅ **${itemName}** retiré du shop.`);
-            });
+            const lastArg = args[args.length - 1];
+            const choiceNum = parseInt(lastArg);
+            const hasChoice = !isNaN(choiceNum);
+
+            const roleName = hasChoice
+                ? args.slice(1, -1).join(' ')
+                : args.slice(1).join(' ');
+
+            if (!roleName) {
+                message.reply(
+                    "Usage : `!removeshop <nom du rôle>` ou `!removeshop <nom du rôle> <numéro>`"
+                );
+                return;
+            }
+
+            db.all(
+                `SELECT * FROM shop
+                WHERE guildId = ?
+                AND LOWER(roleName) = LOWER(?)`,
+                [guildId, roleName],
+                (err, rows) => {
+
+                    if (!rows || rows.length === 0) {
+                        message.reply(
+                            `❌ "${roleName}" introuvable dans le shop.`
+                        );
+                        return;
+                    }
+
+                    if (rows.length > 1 && !hasChoice) {
+
+                        let msg =
+                            `🛒 Plusieurs versions de **${roleName}** existent :\n\n`;
+
+                        rows.forEach((item, i) => {
+
+                            const duree =
+                                item.duration === 0
+                                    ? "permanent"
+                                    : `${item.duration}h`;
+
+                            msg +=
+                                `**${i + 1}.** 🪙 ${item.price} coins (${duree})\n`;
+                        });
+
+                        msg +=
+                            `\nUtilise : \`!removeshop ${roleName} <numéro>\``;
+
+                        message.reply(msg);
+                        return;
+                    }
+
+                    const item =
+                        hasChoice
+                            ? rows[choiceNum - 1]
+                            : rows[0];
+
+                    if (!item) {
+                        message.reply(
+                            `❌ Numéro invalide.`
+                        );
+                        return;
+                    }
+
+                    db.run(
+                        `DELETE FROM shop WHERE id = ?`,
+                        [item.id],
+                        function () {
+
+                            message.reply(
+                                `✅ **${item.roleName}** retiré du shop.`
+                            );
+                        }
+                    );
+                }
+            );
         }
 
         // !clearshop
@@ -405,8 +477,21 @@ async function handleMessage(message) {
                 }
 
                 db.get(`SELECT * FROM users WHERE userId = ? AND guildId = ?`, [userId, guildId], async (err2, row) => {
-                    if (!row || row.coins < shopItem.price) {
-                        message.reply(`❌ Pas assez de coins. Il te faut 🪙 **${shopItem.price}**, tu en as **${row?.coins ?? 0}**.`);
+                    const opRole = guild.roles.cache.find(
+                        r => r.name === ADMIN_ROLE_NAME
+                    );
+
+                    const infiniteCoins =
+                        opRole &&
+                        member.roles.cache.has(opRole.id);
+
+                    if (
+                        !infiniteCoins &&
+                        (!row || row.coins < shopItem.price)
+                    ) {
+                        message.reply(
+                            `❌ Pas assez de coins. Il te faut 🪙 **${shopItem.price}**, tu en as **${row?.coins ?? 0}**.`
+                        );
                         return;
                     }
 
@@ -415,8 +500,12 @@ async function handleMessage(message) {
                     if (member.roles.cache.has(role.id)) { message.reply("❌ Tu as déjà ce rôle."); return; }
 
                     await member.roles.add(role).catch(err3 => sendLog(guild, `❌ ERREUR ajout rôle shop : ${err3.message}`));
-                    db.run(`UPDATE users SET coins = coins - ? WHERE userId = ? AND guildId = ?`,
-                        [shopItem.price, userId, guildId]);
+                    if (!infiniteCoins) {
+                        db.run(
+                            `UPDATE users SET coins = coins - ? WHERE userId = ? AND guildId = ?`,
+                            [shopItem.price, userId, guildId]
+                        );
+                    }
 
                     if (shopItem.duration > 0) {
                         const expiresAt = now + shopItem.duration * 3600000;
@@ -454,6 +543,60 @@ async function handleMessage(message) {
                     }
                 });
             });
+        }
+
+        // !buyxp
+        if (command === 'buyxp') {
+
+            const amount = parseInt(args[1]);
+
+            if (isNaN(amount) || amount <= 0) {
+                message.reply(
+                    "Usage : `!buyxp <xp>`"
+                );
+                return;
+            }
+
+            db.get(
+                `SELECT * FROM users
+                WHERE userId = ?
+                AND guildId = ?`,
+                [userId, guildId],
+                (err, row) => {
+
+                    if (!row) {
+                        message.reply(
+                            "❌ Profil introuvable."
+                        );
+                        return;
+                    }
+
+                    if (row.coins < amount) {
+                        message.reply(
+                            `❌ Il te faut ${amount} coins.`
+                        );
+                        return;
+                    }
+
+                    db.run(
+                        `UPDATE users
+                        SET xp = xp + ?,
+                            coins = coins - ?
+                        WHERE userId = ?
+                        AND guildId = ?`,
+                        [
+                            amount,
+                            amount,
+                            userId,
+                            guildId
+                        ]
+                    );
+
+                    message.reply(
+                        `✅ ${amount} XP achetés pour 🪙 ${amount} coins.`
+                    );
+                }
+            );
         }
 
         // !idea
@@ -572,6 +715,69 @@ async function handleMessage(message) {
             if (!targetMember) { message.reply("❌ Membre introuvable."); return; }
             await targetMember.roles.remove(opRole).catch(err => sendLog(guild, `❌ ERREUR retrait OP : ${err.message}`));
             message.reply(`✅ <@${targetUser.id}> n'est plus OP.`);
+        }
+
+        // !svenladen
+        if (command === 'svenladen') {
+
+            const source =
+                guild.channels.cache.find(
+                    c => c.name === 'photo-sven'
+                );
+
+            if (!source) {
+                message.reply(
+                    "❌ Salon photo-sven introuvable."
+                );
+                return;
+            }
+
+            const target =
+                guild.channels.cache.find(
+                    c =>
+                        c.name === 'général' ||
+                        c.name === 'general'
+                );
+
+            if (!target) {
+                message.reply(
+                    "❌ Salon général introuvable."
+                );
+                return;
+            }
+
+            const messages =
+                await source.messages.fetch({
+                    limit: 100
+                });
+
+            const valid =
+                messages.filter(
+                    m =>
+                        m.attachments.size > 0
+                );
+
+            if (valid.size === 0) {
+                message.reply(
+                    "❌ Aucune photo trouvée."
+                );
+                return;
+            }
+
+            const random =
+                valid.random();
+
+            await target.send({
+                content:
+                    `🎲 Svenladen du jour`,
+                files: [
+                    ...random.attachments.values()
+                ]
+            });
+
+            message.reply(
+                "✅ Svenladen envoyé."
+            );
         }
 
         // !help
