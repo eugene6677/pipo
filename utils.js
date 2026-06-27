@@ -32,10 +32,50 @@ function sendStartupLog(client, msg) {
 }
 
 function recordActivity(userId, guildId) {
-    const hour = new Date().getHours();
-    db.run(`INSERT INTO activity (userId, guildId, hour, count) VALUES (?, ?, ?, 1)
-            ON CONFLICT(userId, guildId, hour) DO UPDATE SET count = count + 1`,
-        [userId, guildId, hour]);
+
+    const now = new Date();
+
+    // Heure locale du serveur
+    const hour = now.getHours();
+
+    // Jour de la semaine
+    // 0 = dimanche ... 6 = samedi
+    const day = now.getDay();
+
+    // Exemple : 2026-06
+    const month =
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Activité par heure
+    db.run(
+        `INSERT INTO activity
+        (userId, guildId, hour, count)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(userId, guildId, hour)
+        DO UPDATE SET count = count + 1`,
+        [userId, guildId, hour]
+    );
+
+    // Activité par jour
+    db.run(
+        `INSERT INTO daily_activity
+        (userId, guildId, day, count)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(userId, guildId, day)
+        DO UPDATE SET count = count + 1`,
+        [userId, guildId, day]
+    );
+
+    // Activité mensuelle
+    db.run(
+        `INSERT INTO monthly_activity
+        (userId, guildId, month, count)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(userId, guildId, month)
+        DO UPDATE SET count = count + 1`,
+        [userId, guildId, month]
+    );
+
 }
 
 function getActivityRange(userId, guildId, callback) {
