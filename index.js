@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const { Client, GatewayIntentBits } = require('discord.js');
 const db = require('./db');
 const { sendStartupLog, getLevelUpChannel, sendLog } = require('./utils');
@@ -63,9 +65,42 @@ setInterval(() => {
 client.on('messageCreate', handleMessage);
 
 // ============================================================
+// 💾 SAUVEGARDE AUTOMATIQUE
+// ============================================================
+
+setInterval(() => {
+
+    const backupDir = "./backups";
+
+    if (!fs.existsSync(backupDir))
+        fs.mkdirSync(backupDir);
+
+    const now = new Date();
+
+    const filename =
+        `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}h.db`;
+
+    fs.copyFile(
+        "./levels.db",
+        path.join(backupDir, filename),
+        err => {
+
+            if(err){
+                console.error("Erreur backup :", err);
+                return;
+            }
+
+            console.log("💾 Backup créé :", filename);
+
+        });
+
+},1000*60*60*24);
+
+// ============================================================
 // 🚀 DÉMARRAGE
 // ============================================================
 client.once('clientReady', () => {
+    console.log("RLFR Bot v2.0-dev3");
     sendStartupLog(client, `✅ Bot connecté en tant que ${client.user.tag}`);
 
     client.guilds.cache.forEach(guild => {
