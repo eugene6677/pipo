@@ -116,4 +116,20 @@ client.once('clientReady', () => {
     sendStartupLog(client, "🔊 Scan des vocaux terminé.");
 });
 
+// ============================================================
+// 🌉 BRIDGE
+// ============================================================
+const BRIDGE = {
+    '1528782200953241822': '1528066039806689431',
+    '1528066039806689431': '1528782200953241822'
+};
+
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    const target = BRIDGE[message.channelId];
+    if (!target) return;
+    const ch = await client.channels.fetch(target).catch(() => null);
+    if (ch) ch.send(`**${message.author.username}** : ${message.content}`);
+});
+
 client.login(process.env.DISCORD_TOKEN);
