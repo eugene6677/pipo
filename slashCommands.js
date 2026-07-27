@@ -139,6 +139,11 @@ const commands = [
     new SlashCommandBuilder()
         .setName('deletemessage')
         .setDescription('Supprimer ton dernier message bridgé'),
+
+    new SlashCommandBuilder()
+        .setName('anonyme')
+        .setDescription('Envoyer un message anonyme dans le bridge')
+        .addStringOption(o => o.setName('message').setDescription('Ton message').setRequired(true)),
 ];
 
 module.exports = commands.map(c => c.toJSON());

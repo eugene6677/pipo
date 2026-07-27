@@ -88,6 +88,7 @@ client.on('messageCreate', async (message) => {
 
 // Expose bridgeMap pour slashHandler
 client.bridgeMap = bridgeMap;
+client.bridgeChannels = BRIDGE;
 
 // ============================================================
 // ⚡ SLASH COMMANDS

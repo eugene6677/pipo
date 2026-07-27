@@ -476,6 +476,19 @@ async function handleInteraction(interaction) {
         reply("✅ Message supprimé.", true);
     }
 
+    else if (commandName === 'anonyme') {
+        const targetId = interaction.client.bridgeChannels?.[interaction.channelId];
+        if (!targetId) { reply("❌ Ce salon n'est pas connecté au bridge.", true); return; }
+
+        const texte = interaction.options.getString('message');
+        const ch    = await interaction.client.channels.fetch(targetId).catch(() => null);
+        if (!ch) { reply("❌ Salon cible introuvable.", true); return; }
+
+        const sent = await ch.send(texte);
+        interaction.client.bridgeMap.set(`anon-${Date.now()}`, { channelId: targetId, messageId: sent.id, userId: userId });
+        reply("✅ Message envoyé anonymement.", true);
+    }
+
     else if (commandName === 'help') {
         const msg =
             "📖 **Commandes disponibles** 📖\n\n" +
