@@ -136,6 +136,9 @@ const commands = [
         .setDescription('Retirer le rôle OP (Eugène uniquement)')
         .addUserOption(o => o.setName('membre').setDescription('Membre').setRequired(true)),
 
+    new SlashCommandBuilder()
+        .setName('deletemessage')
+        .setDescription('Supprimer ton dernier message bridgé'),
 ];
 
 module.exports = commands.map(c => c.toJSON());

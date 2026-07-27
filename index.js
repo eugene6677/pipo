@@ -74,13 +74,20 @@ const BRIDGE = {
     '1528066039806689431': '1528782200953241822'
 };
 
+const bridgeMap = new Map(); // messageId original -> { channelId, messageId, userId }
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    const target = BRIDGE[message.channelId];
-    if (!target) return;
-    const ch = await client.channels.fetch(target).catch(() => null);
-    if (ch) ch.send(`**${message.author.username}** : ${message.content}`);
+    const targetId = BRIDGE[message.channelId];
+    if (!targetId) return;
+    const ch = await client.channels.fetch(targetId).catch(() => null);
+    if (!ch) return;
+    const sent = await ch.send(`**${message.author.username}** : ${message.content}`);
+    bridgeMap.set(message.id, { channelId: targetId, messageId: sent.id, userId: message.author.id });
 });
+
+// Expose bridgeMap pour slashHandler
+client.bridgeMap = bridgeMap;
 
 // ============================================================
 // ⚡ SLASH COMMANDS

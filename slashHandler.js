@@ -458,6 +458,24 @@ async function handleInteraction(interaction) {
         await interaction.reply("https://vm.tiktok.com/znrgljpf9/");
     }
 
+    else if (commandName === 'deletemessage') {
+        const bridgeMap = interaction.client.bridgeMap;
+
+        const entry = [...bridgeMap.entries()]
+            .reverse()
+            .find(([, data]) => data.userId === userId);
+
+        if (!entry) { reply("❌ Aucun message bridgé trouvé.", true); return; }
+
+        const [originalId, { channelId, messageId }] = entry;
+        const ch = await interaction.client.channels.fetch(channelId).catch(() => null);
+        if (!ch) { reply("❌ Salon introuvable.", true); return; }
+
+        await ch.messages.delete(messageId).catch(() => {});
+        bridgeMap.delete(originalId);
+        reply("✅ Message supprimé.", true);
+    }
+
     else if (commandName === 'help') {
         const msg =
             "📖 **Commandes disponibles** 📖\n\n" +
