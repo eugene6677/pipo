@@ -82,7 +82,9 @@ client.on('messageCreate', async (message) => {
     if (!targetId) return;
     const ch = await client.channels.fetch(targetId).catch(() => null);
     if (!ch) return;
-    const sent = await ch.send(`**${message.author.username}** : ${message.content}`);
+    const files   = [...message.attachments.values()];
+    const content = `**${message.author.username}** : ${message.content}`;
+    const sent    = await ch.send({ content, files: files.length > 0 ? files : undefined });
     bridgeMap.set(message.id, { channelId: targetId, messageId: sent.id, userId: message.author.id });
 });
 
