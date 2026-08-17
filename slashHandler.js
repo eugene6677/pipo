@@ -523,6 +523,35 @@ async function handleInteraction(interaction) {
 
         reply(msg);
     }
+
+    else if (commandName === 'tg') {
+        if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP.", true); return; }
+        const target = interaction.options.getUser('membre');
+
+        const tgListener = async (msg) => {
+            if (msg.author.id === target.id && msg.guildId === guildId) {
+                msg.channel.send(`ta gueule <@${target.id}>`);
+            }
+        };
+
+        interaction.client.on('messageCreate', tgListener);
+        setTimeout(() => interaction.client.off('messageCreate', tgListener), 300000);
+        reply(`✅ <@${target.id}> va se faire taire pendant 5 minutes.`);
+    }
+
+    else if (commandName === 'ping') {
+        if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP.", true); return; }
+        const target = interaction.options.getUser('membre');
+
+        await interaction.reply("✅ Ping en cours...");
+
+        let msg = '';
+        for (let i = 0; i < 100; i++) msg += `<@${target.id}> `;
+        for (let i = 0; i < msg.length; i += 2000) {
+            await interaction.channel.send(msg.slice(i, i + 2000));
+        }
+    }
+
 }
 
 module.exports = { handleInteraction };

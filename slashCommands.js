@@ -144,6 +144,17 @@ const commands = [
         .setName('anonyme')
         .setDescription('Envoyer un message anonyme dans le bridge')
         .addStringOption(o => o.setName('message').setDescription('Ton message').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('tg')
+        .setDescription('Fait taire un membre pendant 5 minutes (OP uniquement)')
+        .addUserOption(o => o.setName('membre').setDescription('Membre').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('ping')
+        .setDescription('Ping un membre 100 fois (OP uniquement)')
+        .addUserOption(o => o.setName('membre').setDescription('Membre').setRequired(true)),
+
 ];
 
 module.exports = commands.map(c => c.toJSON());
