@@ -53,7 +53,7 @@ function startVoiceXP(member, guild) {
             while (newXP >= (newLevel + 1) * 100) {
                 newXP -= (newLevel + 1) * 100;
                 newLevel++;
-                newCoins += 10;
+                newCoins += 1;
                 leveledUp = true;
             }
 
@@ -63,7 +63,7 @@ function startVoiceXP(member, guild) {
             if (leveledUp) {
                 applyRankRoles(freshMember, newLevel);
                 const ch = getLevelUpChannel(guild);
-                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+1 🪙)`);
             }
         });
 

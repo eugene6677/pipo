@@ -46,9 +46,13 @@ async function handleInteraction(interaction) {
         db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level DESC, xp DESC LIMIT 10`, [guildId], (err, rows) => {
             if (!rows || rows.length === 0) { reply("Aucun joueur classé."); return; }
             let msg = "🏆 **Classement du serveur** 🏆\n\n";
-            rows.forEach((u, i) => {
-                msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
-            });
+            let rank = 1;
+            for (const u of rows) {
+                const m = await guild.members.fetch(u.userId).catch(() => null);
+                if (!m) continue;
+                msg += `#${rank} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
+                rank++;
+            }
             reply(msg);
         });
     }
@@ -450,8 +454,8 @@ async function handleInteraction(interaction) {
         if (valid.size === 0) { reply("❌ Aucune photo trouvée."); return; }
 
         const random = valid.random();
-        await target.send({ content: `🎲 Svenladen du jour`, files: [...random.attachments.values()] });
-        reply("✅ Svenladen envoyé.");
+        await target.send({ files: [...random.attachments.values()] });
+        await interaction.reply({ content: "✅", ephemeral: true });
     }
 
     else if (commandName === 'bouzelouf') {
@@ -547,8 +551,8 @@ async function handleInteraction(interaction) {
 
         let msg = '';
         for (let i = 0; i < 100; i++) msg += `<@${target.id}> `;
-        for (let i = 0; i < msg.length; i += 2000) {
-            await interaction.channel.send(msg.slice(i, i + 2000));
+        for (let i = 0; i < 100; i++) {
+            await interaction.channel.send(`<@${target.id}>`);
         }
     }
 

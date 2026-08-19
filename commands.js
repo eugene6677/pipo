@@ -865,10 +865,10 @@ async function handleMessage(message) {
             while (newXP >= (newLevel + 1) * 100) {
                 newXP -= (newLevel + 1) * 100;
                 newLevel++;
-                newCoins += 10;
+                newCoins += 1;
 
                 const ch = getLevelUpChannel(guild);
-                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+1 🪙)`);
 
                 if (member) applyRankRoles(member, newLevel);
             }
