@@ -1,5 +1,10 @@
 require('dotenv').config();
 
+const { loadChannelOverrides } = require('./config');
+loadChannelOverrides(() => {
+    console.log("✅ Channel overrides chargés.");
+});
+
 const fs   = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');

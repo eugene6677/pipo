@@ -129,6 +129,13 @@ db.serialize(() => {
         PRIMARY KEY (userId, guildId)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS channel_overrides (
+        guildId TEXT,
+        type TEXT,
+        channelName TEXT,
+        PRIMARY KEY (guildId, type)
+    )`);
+
 });
 
 module.exports = db;

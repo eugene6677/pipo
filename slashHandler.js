@@ -3,7 +3,7 @@
 // ============================================================
 
 const db = require('./db');
-const { ADMIN_ROLE_NAME, YOUR_USER_ID } = require('./config');
+const { ADMIN_ROLE_NAME, YOUR_USER_ID, setChannelOverride } = require('./config');
 const {
     getCommandChannel, getLevelUpChannel, sendLog,
     isAdmin, applyRankRoles, getActivityRange, getSuggestionsChannel
@@ -20,7 +20,7 @@ async function handleInteraction(interaction) {
 
     // Fonction utilitaire pour répondre dans le bon salon
     const reply = async (msg, ephemeral = false) => {
-        await interaction.reply({ content: msg, ephemeral });
+        await interaction.reply({ content: msg, flags: ephemeral ? 64 : 0 });
         if (!ephemeral && commandChannel && interaction.channelId !== commandChannel.id) {
             commandChannel.send(msg);
         }
@@ -459,7 +459,7 @@ async function handleInteraction(interaction) {
     }
 
     else if (commandName === 'bouzelouf') {
-        await interaction.reply("https://vm.tiktok.com/znrgljpf9/");
+        await interaction.reply({ content: "https://vm.tiktok.com/znrgljpf9/" });
     }
 
     else if (commandName === 'deletemessage') {
@@ -590,7 +590,7 @@ async function handleInteraction(interaction) {
         const { channelOverrides } = require('./config');
 
         if (!channelOverrides.has(guildId)) channelOverrides.set(guildId, {});
-        channelOverrides.get(guildId)[type] = salon.name;
+        setChannelOverride(guildId, type, salon.name);
 
         const typeNames = {
             levelup:     'Level Up',

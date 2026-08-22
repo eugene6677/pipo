@@ -44,7 +44,7 @@ function recordActivity(userId, guildId) {
     const now = new Date();
 
     // Heure locale du serveur
-    const hour = now.getHours();
+    const hour = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false });
     console.log(`📊 recordActivity appelé pour ${userId} à ${hour}h`);
 
     // Jour de la semaine
