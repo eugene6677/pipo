@@ -38,6 +38,10 @@ const rewards = [
     { minLevel: 20, maxLevel: Infinity, role: "Dieu"    }
 ];
 
+function getChannelName(guildId, type, defaultName) {
+    return channelOverrides.get(guildId)?.[type] ?? defaultName;
+}
+
 module.exports = {
     LEVELUP_CHANNEL_NAME,
     COMMAND_CHANNEL_NAME,
