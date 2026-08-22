@@ -155,6 +155,10 @@ const commands = [
         .setDescription('Ping un membre 100 fois (OP uniquement)')
         .addUserOption(o => o.setName('membre').setDescription('Membre').setRequired(true)),
 
+    new SlashCommandBuilder()
+        .setName('topmonth')
+        .setDescription('Top 10 des membres les plus actifs ce mois-ci'),
+
 ];
 
 module.exports = commands.map(c => c.toJSON());

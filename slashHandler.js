@@ -556,6 +556,32 @@ async function handleInteraction(interaction) {
         }
     }
 
+    else if (commandName === 'topmonth') {
+        const now   = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        db.all(`SELECT userId, SUM(count) as total FROM monthly_activity 
+                WHERE guildId = ? AND month = ? 
+                GROUP BY userId 
+                ORDER BY total DESC LIMIT 10`,
+            [guildId, month], async (err, rows) => {
+
+            if (!rows || rows.length === 0) { reply("Aucun joueur actif ce mois-ci."); return; }
+
+            let msg  = `🏆 **Top du mois (${month})** 🏆\n\n`;
+            let rank = 1;
+
+            for (const u of rows) {
+                const m = await guild.members.fetch(u.userId).catch(() => null);
+                if (!m) continue;
+                msg += `#${rank} <@${u.userId}> — ${u.total} activités ce mois\n`;
+                rank++;
+            }
+
+            reply(msg);
+        });
+    }
+
 }
 
 module.exports = { handleInteraction };
