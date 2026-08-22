@@ -46,6 +46,7 @@ module.exports = {
     SUGGESTIONS_CHANNEL_NAME,
     rewards,
     channelOverrides,
+    getChannelName,
     setChannelOverride,
     loadChannelOverrides
 };
