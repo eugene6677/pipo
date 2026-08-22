@@ -5,7 +5,7 @@ const path = require('path');
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 const db = require('./db');
 const { sendStartupLog, getLevelUpChannel, sendLog } = require('./utils');
-const { startVoiceXP, stopVoiceXP } = require('./voice');
+const { startVoiceXP, stopVoiceXP, startStreamXP, stopStreamXP } = require('./voice');
 const { handleMessage } = require('./commands');
 const { handleInteraction } = require('./slashHandler');
 const slashCommands = require('./slashCommands');
@@ -31,7 +31,15 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     if (!member || member.user.bot) return;
 
     if (!oldState.channelId && newState.channelId) startVoiceXP(member, guild);
-    if (oldState.channelId && !newState.channelId) stopVoiceXP(member, guild);
+    if (oldState.channelId && !newState.channelId) {
+        stopVoiceXP(member, guild);
+        stopStreamXP(member, guild);
+    }
+
+    // Début du stream
+    if (!oldState.streaming && newState.streaming) startStreamXP(member, guild);
+    // Fin du stream
+    if (oldState.streaming && !newState.streaming) stopStreamXP(member, guild);
 });
 
 // ============================================================
