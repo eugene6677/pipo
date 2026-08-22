@@ -163,6 +163,19 @@ client.once('clientReady', async () => {
     });
 
     sendStartupLog(client, "🔊 Scan des vocaux terminé.");
+
+    // Scan des streams existants
+    client.guilds.cache.forEach(guild => {
+        guild.channels.cache
+            .filter(c => c.isVoiceBased())
+            .forEach(channel => {
+                channel.members
+                    .filter(m => !m.user.bot && m.voice.streaming)
+                    .forEach(member => startStreamXP(member, guild));
+            });
+    });
+    sendStartupLog(client, "📺 Scan des streams terminé.");
+
 });
 
 client.login(process.env.DISCORD_TOKEN);
