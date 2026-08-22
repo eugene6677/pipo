@@ -44,8 +44,9 @@ async function handleMessage(message) {
             await guild.members.ban(userId, { deleteMessageSeconds: 0, reason: "Spam excessif" })
                 .catch(err => sendLog(guild, `❌ ERREUR BAN : ${err.message}`));
             setTimeout(async () => {
-                await guild.bans.remove(userId).catch(err => sendLog(guild, `❌ ERREUR UNBAN : ${err.message}`));
-                sendLog(guild, `✅ ${userId} débanni après 1 minute`);
+                await guild.bans.remove(userId)
+                    .then(() => sendLog(guild, `✅ ${userId} débanni après 1 minute`))
+                    .catch(err => sendLog(guild, `❌ ERREUR UNBAN : ${err.message} — déban manuel requis pour ${userId}`));
             }, 60000);
             return;
         }
