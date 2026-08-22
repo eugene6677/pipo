@@ -92,6 +92,14 @@ client.on('messageCreate', async (message) => {
 client.bridgeMap = bridgeMap;
 client.bridgeChannels = BRIDGE;
 
+const schedule = require('node-cron');
+schedule.schedule('0 9 * * *', () => {
+    client.guilds.cache.forEach(guild => {
+        const ch = guild.channels.cache.find(c => c.name === 'général' || c.name === 'general');
+        if (ch) ch.send('Bonjour tout le monde ! 🌅');
+    });
+}, { timezone: "Europe/Paris" });
+
 // ============================================================
 // ⚡ SLASH COMMANDS
 // ============================================================

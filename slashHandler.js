@@ -46,8 +46,13 @@ async function handleInteraction(interaction) {
         db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level DESC, xp DESC LIMIT 10`, [guildId], (err, rows) => {
             if (!rows || rows.length === 0) { reply("Aucun joueur classé."); return; }
             let msg = "🏆 **Classement du serveur** 🏆\n\n";
-            rows.forEach((u, i) => {
-                msg += `#${i + 1} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
+            let rank = 1;
+            for (const u of rows) {
+                const m = await guild.members.fetch(u.userId).catch(() => null);
+                if (!m) continue;
+                msg += `#${rank} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
+                rank++;
+            }
             });
             reply(msg);
         });
