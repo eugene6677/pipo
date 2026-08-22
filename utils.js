@@ -3,18 +3,26 @@
 // ============================================================
 
 const db = require('./db');
-const { LEVELUP_CHANNEL_NAME, COMMAND_CHANNEL_NAME, ADMIN_ROLE_NAME, YOUR_USER_ID, rewards, SUGGESTIONS_CHANNEL_NAME } = require('./config');
+const { getChannelName, channelOverrides, LEVELUP_CHANNEL_NAME, COMMAND_CHANNEL_NAME, SUGGESTIONS_CHANNEL_NAME, ADMIN_ROLE_NAME, YOUR_USER_ID, rewards } = require('./config');
 
 function getLevelUpChannel(guild) {
-    return guild.channels.cache.find(c => c.name === LEVELUP_CHANNEL_NAME && c.isTextBased());
+    const name = getChannelName(guild.id, 'levelup', LEVELUP_CHANNEL_NAME);
+    return guild.channels.cache.find(c => c.name === name && c.isTextBased());
 }
 
 function getCommandChannel(guild) {
-    return guild.channels.cache.find(c => c.name === COMMAND_CHANNEL_NAME && c.isTextBased());
+    const name = getChannelName(guild.id, 'commande', COMMAND_CHANNEL_NAME);
+    return guild.channels.cache.find(c => c.name === name && c.isTextBased());
 }
 
 function getLogsChannel(guild) {
-    return guild.channels.cache.find(c => c.name === "logs" && c.isTextBased());
+    const name = getChannelName(guild.id, 'logs', 'logs');
+    return guild.channels.cache.find(c => c.name === name && c.isTextBased());
+}
+
+function getSuggestionsChannel(guild) {
+    const name = getChannelName(guild.id, 'suggestions', SUGGESTIONS_CHANNEL_NAME);
+    return guild.channels.cache.find(c => c.name === name && c.isTextBased());
 }
 
 function sendLog(guild, msg) {

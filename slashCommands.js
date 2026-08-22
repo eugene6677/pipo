@@ -159,6 +159,18 @@ const commands = [
         .setName('topmonth')
         .setDescription('Top 10 des membres les plus actifs ce mois-ci'),
 
+    new SlashCommandBuilder()
+        .setName('setchannel')
+        .setDescription('Changer le salon utilisé par le bot (OP uniquement)')
+        .addStringOption(o => o.setName('type').setDescription('Type de salon').setRequired(true)
+            .addChoices(
+                { name: 'Level Up (annonces de niveau)', value: 'levelup' },
+                { name: 'Commande (réponses aux commandes)', value: 'commande' },
+                { name: 'Logs', value: 'logs' },
+                { name: 'Suggestions idées', value: 'suggestions' }
+            ))
+        .addChannelOption(o => o.setName('salon').setDescription('Salon cible').setRequired(true)),
+
 ];
 
 module.exports = commands.map(c => c.toJSON());

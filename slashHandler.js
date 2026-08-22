@@ -582,6 +582,26 @@ async function handleInteraction(interaction) {
         });
     }
 
+    else if (commandName === 'setchannel') {
+        if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP et au créateur.", true); return; }
+
+        const type   = interaction.options.getString('type');
+        const salon  = interaction.options.getChannel('salon');
+        const { channelOverrides } = require('./config');
+
+        if (!channelOverrides.has(guildId)) channelOverrides.set(guildId, {});
+        channelOverrides.get(guildId)[type] = salon.name;
+
+        const typeNames = {
+            levelup:     'Level Up',
+            commande:    'Commande',
+            logs:        'Logs',
+            suggestions: 'Suggestions idées'
+        };
+
+        reply(`✅ Salon **${typeNames[type]}** défini sur ${salon}.`);
+    }
+
 }
 
 module.exports = { handleInteraction };
