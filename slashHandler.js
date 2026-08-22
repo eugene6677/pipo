@@ -43,9 +43,9 @@ async function handleInteraction(interaction) {
     }
 
     else if (commandName === 'top') {
-        db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level DESC, xp DESC LIMIT 10`, [guildId], (err, rows) => {
+        db.all(`SELECT * FROM users WHERE guildId = ? ORDER BY level DESC, xp DESC LIMIT 10`, [guildId], async (err, rows) => {
             if (!rows || rows.length === 0) { reply("Aucun joueur classé."); return; }
-            let msg = "🏆 **Classement du serveur** 🏆\n\n";
+            let msg  = "🏆 **Classement du serveur** 🏆\n\n";
             let rank = 1;
             for (const u of rows) {
                 const m = await guild.members.fetch(u.userId).catch(() => null);
@@ -53,7 +53,6 @@ async function handleInteraction(interaction) {
                 msg += `#${rank} <@${u.userId}> — Niveau ${u.level} (${u.xp} XP) | 🪙 ${u.coins}\n`;
                 rank++;
             }
-            });
             reply(msg);
         });
     }
