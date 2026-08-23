@@ -171,6 +171,10 @@ const commands = [
             ))
         .addChannelOption(o => o.setName('salon').setDescription('Salon cible').setRequired(true)),
 
+    new SlashCommandBuilder()
+        .setName('timing')
+        .setDescription('Voir les jours et heures d\'activité des membres'),
+
 ];
 
 module.exports = commands.map(c => c.toJSON());

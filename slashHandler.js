@@ -603,6 +603,59 @@ async function handleInteraction(interaction) {
         reply(`✅ Salon **${typeNames[type]}** défini sur ${salon}.`);
     }
 
+    else if (commandName === 'timing') {
+        const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+        db.all(`SELECT userId, day, SUM(count) as total FROM daily_activity 
+                WHERE guildId = ? GROUP BY userId, day`,
+            [guildId], async (err, rows) => {
+
+            if (!rows || rows.length === 0) { reply("Aucune donnée d'activité."); return; }
+
+            // Regrouper par jour
+            const byDay = {};
+            for (let i = 0; i < 7; i++) byDay[i] = [];
+
+            for (const row of rows) {
+                const m = await guild.members.fetch(row.userId).catch(() => null);
+                if (!m) continue;
+
+                // Récupère la plage horaire du membre pour ce jour
+                const hourRange = await new Promise(resolve => {
+                    db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY count DESC`,
+                        [row.userId, guildId], (err2, hourRows) => {
+                        if (!hourRows || hourRows.length === 0) { resolve(null); return; }
+
+                        const total     = hourRows.reduce((s, r) => s + r.count, 0);
+                        const threshold = total * 0.1;
+                        const active    = hourRows.filter(r => r.count >= threshold).map(r => r.hour).sort((a, b) => a - b);
+
+                        if (active.length === 0) { resolve(null); return; }
+                        resolve(`${active[0]}h-${active[active.length - 1]}h`);
+                    });
+                });
+
+                byDay[row.day].push({ userId: row.userId, range: hourRange });
+            }
+
+            let msg = "🗓️ **Activité par jour** 🗓️\n\n";
+
+            for (let i = 1; i <= 7; i++) {
+                const dayIndex = i % 7;
+                const members  = byDay[dayIndex];
+                msg += `**${days[dayIndex]}** : `;
+
+                if (members.length === 0) {
+                    msg += "*personne*\n";
+                } else {
+                    msg += members.map(m => m.range ? `<@${m.userId}> (${m.range})` : `<@${m.userId}>`).join(' ') + "\n";
+                }
+            }
+
+            reply(msg);
+        });
+    }
+
 }
 
 module.exports = { handleInteraction };
