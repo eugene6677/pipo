@@ -606,11 +606,16 @@ async function handleInteraction(interaction) {
     else if (commandName === 'timing') {
         const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
+        await interaction.deferReply();
+
         db.all(`SELECT userId, day, SUM(count) as total FROM daily_activity 
                 WHERE guildId = ? GROUP BY userId, day`,
             [guildId], async (err, rows) => {
 
-            if (!rows || rows.length === 0) { reply("Aucune donnée d'activité."); return; }
+            if (!rows || rows.length === 0) { 
+                await interaction.editReply("Aucune donnée d'activité."); 
+                return; 
+            }
 
             // Regrouper par jour
             const byDay = {};
@@ -676,7 +681,7 @@ async function handleInteraction(interaction) {
             }
             if (current) chunks.push(current);
 
-            await interaction.reply({ content: chunks[0], flags: 0 });
+            await interaction.editReply({ content: chunks[0] });
             for (let i = 1; i < chunks.length; i++) {
                 await interaction.channel.send(chunks[i]);
             }
