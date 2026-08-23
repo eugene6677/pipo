@@ -44,7 +44,7 @@ function recordActivity(userId, guildId) {
     const now = new Date();
 
     // Heure locale du serveur
-    const hour = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false });
+    const hour = parseInt(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false }));
     console.log(`📊 recordActivity appelé pour ${userId} à ${hour}h`);
 
     // Jour de la semaine
@@ -119,10 +119,6 @@ function getMultiplier(member, guild) {
     const opRole = guild.roles.cache.find(r => r.name === ADMIN_ROLE_NAME);
     if (opRole && member.roles.cache.has(opRole.id)) multiplier *= 1.25;
     return multiplier;
-}
-
-function getSuggestionsChannel(guild) {
-    return guild.channels.cache.find(c => c.name === "suggestions-idées" && c.isTextBased());
 }
 
 async function applyRankRoles(member, level) {
