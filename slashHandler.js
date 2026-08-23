@@ -612,51 +612,32 @@ async function handleInteraction(interaction) {
                 WHERE guildId = ? GROUP BY userId, day`,
             [guildId], async (err, rows) => {
 
-            if (!rows || rows.length === 0) { 
-                await interaction.editReply("Aucune donnée d'activité."); 
-                return; 
+            if (!rows || rows.length === 0) {
+                await interaction.editReply("Aucune donnée d'activité.");
+                return;
             }
 
-            // Regrouper par jour
             const byDay = {};
             for (let i = 0; i < 7; i++) byDay[i] = [];
 
             for (const row of rows) {
                 const m = await guild.members.fetch(row.userId).catch(() => null);
                 if (!m) continue;
-
-                // Récupère la plage horaire du membre pour ce jour
-
                 byDay[row.day].push(row.userId);
             }
 
-            let msg = "🗓️ **Activité par jour** 🗓️\n\n";
-
-            for (let i = 1; i <= 7; i++) {
-                const dayIndex = i % 7;
-                const members  = byDay[dayIndex];
-                msg += `**${days[dayIndex]}** : `;
-
-                if (members.length === 0) {
-                    msg += "*personne*\n";
-                } else {
-                    msg += members.map(m => m.range ? `<@${m.userId}> (${m.range})` : `<@${m.userId}>`).join(' ') + "\n";
-                }
-            }
-
-            // Découper en plusieurs messages si trop long
             const chunks = [];
             let current  = "🗓️ **Activité par jour** 🗓️\n\n";
 
             for (let i = 1; i <= 7; i++) {
                 const dayIndex = i % 7;
                 const members  = byDay[dayIndex];
-                let line = `**${days[dayIndex]}** : `;
+                let line = `**${days[dayIndex]}** :\n`;
 
                 if (members.length === 0) {
-                    line += "*personne*\n";
+                    line += "*personne*\n\n";
                 } else {
-                    line += members.map(m => m.range ? `<@${m.userId}> (${m.range})` : `<@${m.userId}>`).join(' ') + "\n";
+                    line += members.map(m => `<@${m}>`).join(' ') + "\n\n";
                 }
 
                 if (current.length + line.length > 1900) {
