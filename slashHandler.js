@@ -652,7 +652,34 @@ async function handleInteraction(interaction) {
                 }
             }
 
-            reply(msg);
+            // Découper en plusieurs messages si trop long
+            const chunks = [];
+            let current  = "🗓️ **Activité par jour** 🗓️\n\n";
+
+            for (let i = 1; i <= 7; i++) {
+                const dayIndex = i % 7;
+                const members  = byDay[dayIndex];
+                let line = `**${days[dayIndex]}** : `;
+
+                if (members.length === 0) {
+                    line += "*personne*\n";
+                } else {
+                    line += members.map(m => m.range ? `<@${m.userId}> (${m.range})` : `<@${m.userId}>`).join(' ') + "\n";
+                }
+
+                if (current.length + line.length > 1900) {
+                    chunks.push(current);
+                    current = line;
+                } else {
+                    current += line;
+                }
+            }
+            if (current) chunks.push(current);
+
+            await interaction.reply({ content: chunks[0], flags: 0 });
+            for (let i = 1; i < chunks.length; i++) {
+                await interaction.channel.send(chunks[i]);
+            }
         });
     }
 
