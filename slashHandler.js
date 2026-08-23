@@ -360,6 +360,7 @@ async function handleInteraction(interaction) {
         if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP et au créateur.", true); return; }
         const target = interaction.options.getUser('membre');
         const amount = interaction.options.getInteger('coins');
+        if (amount < 0 || !isFinite(amount)) { reply("❌ Valeur invalide."); return; }
         db.run(`INSERT INTO users (userId, guildId, xp, level, coins) VALUES (?, ?, 0, 0, ?)
                 ON CONFLICT(userId, guildId) DO UPDATE SET coins = ?`,
             [target.id, guildId, amount, amount]);
