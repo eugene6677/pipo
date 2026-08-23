@@ -626,21 +626,8 @@ async function handleInteraction(interaction) {
                 if (!m) continue;
 
                 // Récupère la plage horaire du membre pour ce jour
-                const hourRange = await new Promise(resolve => {
-                    db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY count DESC`,
-                        [row.userId, guildId], (err2, hourRows) => {
-                        if (!hourRows || hourRows.length === 0) { resolve(null); return; }
 
-                        const total     = hourRows.reduce((s, r) => s + r.count, 0);
-                        const threshold = total * 0.1;
-                        const active    = hourRows.filter(r => r.count >= threshold).map(r => r.hour).sort((a, b) => a - b);
-
-                        if (active.length === 0) { resolve(null); return; }
-                        resolve(`${active[0]}h-${active[active.length - 1]}h`);
-                    });
-                });
-
-                byDay[row.day].push({ userId: row.userId, range: hourRange });
+                byDay[row.day].push(row.userId);
             }
 
             let msg = "🗓️ **Activité par jour** 🗓️\n\n";

@@ -44,8 +44,8 @@ function recordActivity(userId, guildId) {
     const now = new Date();
 
     // Heure locale du serveur
-    const hour = parseInt(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false }));
-
+    const hourStr = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false });
+    const hour = parseInt(hourStr.replace(/\s*h.*/, ''));
     // Jour de la semaine
     // 0 = dimanche ... 6 = samedi
     const day = now.getDay();
