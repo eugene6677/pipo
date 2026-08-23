@@ -45,7 +45,6 @@ function recordActivity(userId, guildId) {
 
     // Heure locale du serveur
     const hour = parseInt(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false }));
-    console.log(`📊 recordActivity appelé pour ${userId} à ${hour}h`);
 
     // Jour de la semaine
     // 0 = dimanche ... 6 = samedi
@@ -90,7 +89,6 @@ function recordActivity(userId, guildId) {
 function getActivityRange(userId, guildId, callback) {
     db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY count DESC`,
         [userId, guildId], (err, rows) => {
-        console.log(`📊 getActivityRange pour ${userId} : ${rows?.length ?? 0} entrées`);
         if (!rows || rows.length === 0) return callback(null);
 
         const totalCount = rows.reduce((sum, r) => sum + r.count, 0);
