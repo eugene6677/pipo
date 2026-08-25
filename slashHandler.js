@@ -550,11 +550,21 @@ async function handleInteraction(interaction) {
         const target = interaction.options.getUser('membre');
 
         await interaction.reply("✅ Ping en cours...");
+        interaction.client.pingActive.set(guildId, true);
 
         for (let i = 0; i < 100; i++) {
+            if (!interaction.client.pingActive.get(guildId)) break;
             await interaction.channel.send(`<@${target.id}>`);
-            await new Promise(r => setTimeout(r, 500)); // 0.5s entre chaque pour éviter le rate limit
+            await new Promise(r => setTimeout(r, 500));
         }
+
+        interaction.client.pingActive.delete(guildId);
+    }
+
+    else if (commandName === 'pingstop') {
+        if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP.", true); return; }
+        interaction.client.pingActive.set(guildId, false);
+        reply("⏹️ Ping arrêté.");
     }
 
     else if (commandName === 'topmonth') {

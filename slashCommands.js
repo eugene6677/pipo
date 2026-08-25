@@ -175,6 +175,10 @@ const commands = [
         .setName('timing')
         .setDescription('Voir les jours et heures d\'activité des membres'),
 
+    new SlashCommandBuilder()
+        .setName('pingstop')
+        .setDescription('Arrêter le ping en cours'),
+
 ];
 
 module.exports = commands.map(c => c.toJSON());
