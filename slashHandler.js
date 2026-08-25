@@ -501,7 +501,9 @@ async function handleInteraction(interaction) {
             "`/rank` — voir ton niveau, XP et coins\n" +
             "`/rank @membre` — voir le profil d'un autre membre\n" +
             "`/top` — top 10 des membres les plus actifs\n" +
+            "`/topmonth` — top 10 des membres les plus actifs ce mois\n" +
             "`/bot` — les 10 membres les moins actifs\n" +
+            "`/timing` — activité des membres par jour de la semaine\n" +
             "`/shop` — voir les rôles disponibles à l'achat\n" +
             "`/buy <nom du rôle>` ou `/buy <nom du rôle> <numéro>` — acheter un rôle\n" +
             "`/roles` — voir tes rôles achetés et leur durée restante\n" +
@@ -510,6 +512,8 @@ async function handleInteraction(interaction) {
             "`/idea <ton idée>` — soumettre une idée\n" +
             "`/bouzelouf` — 👀\n" +
             "`/svenladen` — photo aléatoire de Sven\n" +
+            "`/anonyme <message>` — envoyer un message anonyme dans le bridge\n" +
+            "`/deletemessage` — supprimer ton dernier message bridgé\n" +
             "`/help` — voir cette liste\n\n" +
             "**Réservé aux OP et au créateur**\n" +
             "`/addshop <prix> <durée> <catégorie> @rôle <description>` — ajouter un rôle au shop\n" +
@@ -518,6 +522,10 @@ async function handleInteraction(interaction) {
             "`/setxp @membre <nombre>` — modifier l'XP d'un membre\n" +
             "`/setlevel @membre <nombre>` — modifier le niveau d'un membre\n" +
             "`/setcoins @membre <nombre>` — modifier les coins d'un membre\n" +
+            "`/setchannel <type> <salon>` — changer le salon utilisé par le bot\n" +
+            "`/tg @membre` — faire taire un membre pendant 5 minutes\n" +
+            "`/ping @membre` — ping un membre 100 fois\n" +
+            "`/pingstop` — arrêter le ping en cours\n" +
             "`/ideas <page>` — voir toutes les idées soumises\n" +
             "`/removeidea <id>` — supprimer une idée\n" +
             "`/clearideas` — supprimer toutes les idées\n" +
