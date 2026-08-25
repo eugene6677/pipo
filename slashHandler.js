@@ -551,10 +551,9 @@ async function handleInteraction(interaction) {
 
         await interaction.reply("✅ Ping en cours...");
 
-        let msg = '';
-        for (let i = 0; i < 100; i++) msg += `<@${target.id}> `;
         for (let i = 0; i < 100; i++) {
             await interaction.channel.send(`<@${target.id}>`);
+            await new Promise(r => setTimeout(r, 500)); // 0.5s entre chaque pour éviter le rate limit
         }
     }
 
