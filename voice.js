@@ -62,8 +62,10 @@ function startVoiceXP(member, guild) {
 
             if (leveledUp) {
                 applyRankRoles(freshMember, newLevel);
-                const ch = getLevelUpChannel(guild);
-                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+1 🪙)`);
+                if (!streamUsers.has(`${guildId}-${userId}`)) {
+                    const ch = getLevelUpChannel(guild);
+                    if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                }
             }
         });
 
@@ -139,8 +141,11 @@ function startStreamXP(member, guild) {
 
             if (leveledUp) {
                 applyRankRoles(freshMember, newLevel);
-                const ch = getLevelUpChannel(guild);
-                if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                // N'envoie le message que si le vocal ne l'a pas déjà envoyé
+                if (!voiceUsers.has(`${guildId}-${userId}`)) {
+                    const ch = getLevelUpChannel(guild);
+                    if (ch) ch.send(`<@${userId}> est passé niveau **${newLevel}** ! 🎉 (+10 🪙)`);
+                }
             }
         });
 
