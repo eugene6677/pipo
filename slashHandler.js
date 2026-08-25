@@ -531,6 +531,7 @@ async function handleInteraction(interaction) {
 
     else if (commandName === 'tg') {
         if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP.", true); return; }
+        if (target.id === interaction.client.user.id) { reply("❌ Je ne peux pas me taire moi-même.", true); return; }
         const target = interaction.options.getUser('membre');
 
         const tgListener = async (msg) => {
