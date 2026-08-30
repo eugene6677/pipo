@@ -59,6 +59,7 @@ function startVoiceXP(member, guild) {
 
             db.run(`UPDATE users SET xp = ?, level = ?, coins = ? WHERE userId = ? AND guildId = ?`,
                 [newXP, newLevel, newCoins, userId, guildId]);
+            db.run(`UPDATE users SET voiceTime = voiceTime + 30 WHERE userId = ? AND guildId = ?`, [userId, guildId]);
 
             if (leveledUp) {
                 applyRankRoles(freshMember, newLevel);

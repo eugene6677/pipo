@@ -37,7 +37,12 @@ async function handleInteraction(interaction) {
 
             getActivityRange(targetId, guildId, (range) => {
                 const activityText = range ? ` | 🕐 Actif de **${range}**` : "";
-                reply(`📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins${activityText}`);
+                const seconds  = row.voiceTime || 0;
+                const days     = Math.floor(seconds / 86400);
+                const hours    = Math.floor((seconds % 86400) / 3600);
+                const minutes  = Math.floor((seconds % 3600) / 60);
+                const voiceText = seconds > 0 ? ` | 🎤 **${days > 0 ? days + 'j ' : ''}${hours > 0 ? hours + 'h ' : ''}${minutes}m** en voc` : '';
+                reply(`📊 <@${targetId}> — Niveau : **${row.level}** | XP : **${row.xp}** / ${(row.level + 1) * 100} | 🪙 **${row.coins}** coins${voiceText}${activityText}`);
             });
         });
     }
