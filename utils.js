@@ -87,20 +87,15 @@ function recordActivity(userId, guildId) {
 }
 
 function getActivityRange(userId, guildId, callback) {
-    db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY count DESC`,
+    db.all(`SELECT hour, count FROM activity WHERE userId = ? AND guildId = ? ORDER BY hour ASC`,
         [userId, guildId], (err, rows) => {
         if (!rows || rows.length === 0) return callback(null);
 
-        const totalCount = rows.reduce((sum, r) => sum + r.count, 0);
-        const threshold  = totalCount * 0.1;
+        if (rows.length === 1) return callback(`${rows[0].hour}h`);
 
-        const activeHours = rows
-            .filter(r => r.count >= threshold)
-            .map(r => r.hour)
-            .sort((a, b) => a - b);
-
-        if (activeHours.length === 0) return callback(null);
-        callback(`${activeHours[0]}h à ${activeHours[activeHours.length - 1]}h`);
+        const minHour = rows[0].hour;
+        const maxHour = rows[rows.length - 1].hour;
+        callback(`${minHour}h à ${maxHour}h`);
     });
 }
 
