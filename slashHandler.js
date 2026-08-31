@@ -544,8 +544,10 @@ async function handleInteraction(interaction) {
 
     else if (commandName === 'tg') {
         if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP.", true); return; }
-        if (target.id === interaction.client.user.id) { reply("❌ Je ne peux pas me taire moi-même.", true); return; }
         const target = interaction.options.getUser('membre');
+        if (target.id === interaction.client.user.id) { reply("❌ Je ne peux pas me taire moi-même.", true); return; }
+
+        await interaction.deferReply();
 
         const tgListener = async (msg) => {
             if (msg.author.id === target.id && msg.guildId === guildId) {
@@ -555,7 +557,7 @@ async function handleInteraction(interaction) {
 
         interaction.client.on('messageCreate', tgListener);
         setTimeout(() => interaction.client.off('messageCreate', tgListener), 300000);
-        reply(`✅ <@${target.id}> va se faire taire pendant 5 minutes.`);
+        await interaction.editReply(`✅ <@${target.id}> va se faire taire pendant 5 minutes.`);
     }
 
     else if (commandName === 'ping') {
