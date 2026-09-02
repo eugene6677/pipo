@@ -167,7 +167,8 @@ const commands = [
                 { name: 'Level Up (annonces de niveau)', value: 'levelup' },
                 { name: 'Commande (réponses aux commandes)', value: 'commande' },
                 { name: 'Logs', value: 'logs' },
-                { name: 'Suggestions idées', value: 'suggestions' }
+                { name: 'Suggestions idées', value: 'suggestions' },
+                { name: 'Photos Svenladen', value: 'svenladen' }
             ))
         .addChannelOption(o => o.setName('salon').setDescription('Salon cible').setRequired(true)),
 

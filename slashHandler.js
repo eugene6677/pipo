@@ -451,7 +451,9 @@ async function handleInteraction(interaction) {
     }
 
     else if (commandName === 'svenladen') {
-        const source = guild.channels.cache.find(c => c.name === 'photo-sven');
+        const { getChannelName } = require('./config');
+        const svenChannelName = getChannelName(guildId, 'svenladen', 'photo-sven');
+        const source = guild.channels.cache.find(c => c.name === svenChannelName);
         if (!source) { reply("❌ Salon photo-sven introuvable."); return; }
 
         const target = guild.channels.cache.find(c => c.name === 'général' || c.name === 'general');
