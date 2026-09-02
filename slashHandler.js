@@ -20,9 +20,11 @@ async function handleInteraction(interaction) {
 
     // Fonction utilitaire pour répondre dans le bon salon
     const reply = async (msg, ephemeral = false) => {
-        await interaction.reply({ content: msg, flags: ephemeral ? 64 : 0 });
         if (!ephemeral && commandChannel && interaction.channelId !== commandChannel.id) {
-            commandChannel.send(msg);
+            await interaction.reply({ content: msg, flags: 64 }); // éphémère dans le salon actuel
+            commandChannel.send(msg); // visible dans commandes
+        } else {
+            await interaction.reply({ content: msg, flags: ephemeral ? 64 : 0 });
         }
     };
 
