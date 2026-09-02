@@ -456,7 +456,8 @@ async function handleInteraction(interaction) {
         const source = guild.channels.cache.find(c => c.name === svenChannelName);
         if (!source) { reply("❌ Salon photo-sven introuvable."); return; }
 
-        const target = guild.channels.cache.find(c => c.name === 'général' || c.name === 'general');
+        const { getGeneralChannel } = require('./utils');
+        const target = getGeneralChannel(guild);
         if (!target) { reply("❌ Salon général introuvable."); return; }
 
         const messages = await source.messages.fetch({ limit: 100 });
