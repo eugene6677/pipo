@@ -107,7 +107,7 @@ client.on('messageCreate', async (message) => {
 // Expose bridgeMap pour slashHandler
 client.bridgeMap = bridgeMap;
 client.pingActive = new Map(); // guildId -> bool
-client.bridgeChannels = BRIDGE;
+client.bridgeChannels = getBridgeMap();
 
 const schedule = require('node-cron');
 schedule.schedule('0 9 * * *', () => {
