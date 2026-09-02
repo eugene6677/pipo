@@ -463,11 +463,17 @@ async function handleInteraction(interaction) {
         if (!target) { await interaction.editReply("❌ Salon général introuvable."); return; }
 
         const messages = await source.messages.fetch({ limit: 100 });
-        const valid    = messages.filter(m => m.attachments.size > 0);
+        const valid = messages.filter(m => m.attachments.size > 0 || m.embeds.some(e => e.type === 'gifv' || e.type === 'image'));
         if (valid.size === 0) { await interaction.editReply("❌ Aucune photo trouvée."); return; }
 
         const random = valid.random();
-        await target.send({ files: [...random.attachments.values()] });
+
+        if (random.attachments.size > 0) {
+            await target.send({ files: [...random.attachments.values()] });
+        } else {
+            const embed = random.embeds[0];
+            await target.send(embed.url || embed.thumbnail?.url || embed.image?.url);
+        }
         await interaction.editReply("✅");
     }
 
