@@ -94,7 +94,7 @@ const bridgeMap = new Map(); // messageId original -> { channelId, messageId, us
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    const targetId = BRIDGE[message.channelId];
+    const targetId = getBridgeMap()[message.channelId];
     if (!targetId) return;
     const ch = await client.channels.fetch(targetId).catch(() => null);
     if (!ch) return;
