@@ -168,6 +168,8 @@ const commands = [
                 { name: 'Commande (réponses aux commandes)', value: 'commande' },
                 { name: 'Logs', value: 'logs' },
                 { name: 'Suggestions idées', value: 'suggestions' },
+                { name: 'Général', value: 'general' },
+                { name: 'Bridge', value: 'bridge' },
                 { name: 'Photos Svenladen', value: 'svenladen' }
             ))
         .addChannelOption(o => o.setName('salon').setDescription('Salon cible').setRequired(true)),

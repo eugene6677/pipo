@@ -615,19 +615,24 @@ async function handleInteraction(interaction) {
     else if (commandName === 'setchannel') {
         if (!isAdmin(member, guild)) { reply("❌ Réservé aux OP et au créateur.", true); return; }
 
-        const type   = interaction.options.getString('type');
-        const salon  = interaction.options.getChannel('salon');
-        const { channelOverrides } = require('./config');
-
-        if (!channelOverrides.has(guildId)) channelOverrides.set(guildId, {});
-        setChannelOverride(guildId, type, salon.name);
+        const type  = interaction.options.getString('type');
+        const salon = interaction.options.getChannel('salon');
 
         const typeNames = {
-            levelup:     'Level Up',
-            commande:    'Commande',
-            logs:        'Logs',
-            suggestions: 'Suggestions idées'
+            levelup:    'Level Up',
+            commande:   'Commande',
+            logs:       'Logs',
+            suggestions:'Suggestions idées',
+            svenladen:  'Photos Svenladen',
+            general:    'Général',
+            bridge:     'Bridge'
         };
+
+        if (type === 'bridge') {
+            setChannelOverride('global', 'bridge_from', salon.id);
+        } else {
+            setChannelOverride(guildId, type, salon.name);
+        }
 
         reply(`✅ Salon **${typeNames[type]}** défini sur ${salon}.`);
     }

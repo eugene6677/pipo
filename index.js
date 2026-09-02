@@ -9,7 +9,7 @@ const fs   = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 const db = require('./db');
-const { sendStartupLog, getLevelUpChannel, sendLog } = require('./utils');
+const { sendStartupLog, getLevelUpChannel, sendLog, getGeneralChannel } = require('./utils');
 const { startVoiceXP, stopVoiceXP, startStreamXP, stopStreamXP } = require('./voice');
 const { handleMessage } = require('./commands');
 const { handleInteraction } = require('./slashHandler');
@@ -82,10 +82,13 @@ client.on('messageCreate', handleMessage);
 // ============================================================
 // 🌉 BRIDGE
 // ============================================================
-const BRIDGE = {
-    '1528782200953241822': '1529494864834596864',
-    '1529494864834596864': '1528782200953241822'
-};
+const { getChannelName } = require('./config');
+
+function getBridgeMap() {
+    const from = getChannelName('global', 'bridge_from', '1528782200953241822');
+    const to   = getChannelName('global', 'bridge_to',   '1528066039806689431');
+    return { [from]: to, [to]: from };
+}
 
 const bridgeMap = new Map(); // messageId original -> { channelId, messageId, userId }
 
@@ -109,7 +112,7 @@ client.bridgeChannels = BRIDGE;
 const schedule = require('node-cron');
 schedule.schedule('0 9 * * *', () => {
     client.guilds.cache.forEach(guild => {
-        const ch = guild.channels.cache.find(c => c.name === 'général' || c.name === 'general');
+        const ch = getGeneralChannel(guild);
         if (ch) ch.send('Bonjour tout le monde ! 🌅');
     });
 }, { timezone: "Europe/Paris" });

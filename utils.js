@@ -114,6 +114,11 @@ function getMultiplier(member, guild) {
     return multiplier;
 }
 
+function getGeneralChannel(guild) {
+    const name = getChannelName(guild.id, 'general', 'général');
+    return guild.channels.cache.find(c => c.name === name && c.isTextBased());
+}
+
 async function applyRankRoles(member, level) {
     const guildRoles = member.guild.roles.cache;
     for (const r of rewards) {
@@ -141,5 +146,6 @@ module.exports = {
     isAdmin,
     getMultiplier,
     applyRankRoles,
-    getSuggestionsChannel
+    getSuggestionsChannel,
+    getGeneralChannel
 };
