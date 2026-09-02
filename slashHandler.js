@@ -451,22 +451,24 @@ async function handleInteraction(interaction) {
     }
 
     else if (commandName === 'svenladen') {
+        await interaction.deferReply({ ephemeral: true });
+
         const { getChannelName } = require('./config');
         const svenChannelName = getChannelName(guildId, 'svenladen', 'photo-sven');
         const source = guild.channels.cache.find(c => c.name === svenChannelName);
-        if (!source) { reply("❌ Salon photo-sven introuvable."); return; }
+        if (!source) { await interaction.editReply("❌ Salon photos introuvable."); return; }
 
         const { getGeneralChannel } = require('./utils');
         const target = getGeneralChannel(guild);
-        if (!target) { reply("❌ Salon général introuvable."); return; }
+        if (!target) { await interaction.editReply("❌ Salon général introuvable."); return; }
 
         const messages = await source.messages.fetch({ limit: 100 });
         const valid    = messages.filter(m => m.attachments.size > 0);
-        if (valid.size === 0) { reply("❌ Aucune photo trouvée."); return; }
+        if (valid.size === 0) { await interaction.editReply("❌ Aucune photo trouvée."); return; }
 
         const random = valid.random();
         await target.send({ files: [...random.attachments.values()] });
-        await interaction.reply({ content: "✅", ephemeral: true });
+        await interaction.editReply("✅");
     }
 
     else if (commandName === 'bouzelouf') {
