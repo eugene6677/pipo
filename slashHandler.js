@@ -451,7 +451,7 @@ async function handleInteraction(interaction) {
     }
 
     else if (commandName === 'svenladen') {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         const { getChannelName } = require('./config');
         const svenChannelName = getChannelName(guildId, 'svenladen', 'photo-sven');
