@@ -27,7 +27,7 @@ function getSuggestionsChannel(guild) {
 
 function sendLog(guild, msg) {
     const ch = getLogsChannel(guild);
-    if (ch) ch.send(msg);
+    if (ch) ch.send(msg).catch(() => {}); // ignore les erreurs de permission
     console.log(msg);
 }
 
@@ -35,7 +35,7 @@ function sendStartupLog(client, msg) {
     console.log(msg);
     client.guilds.cache.forEach(guild => {
         const ch = getLogsChannel(guild);
-        if (ch) ch.send(msg);
+        if (ch) ch.send(msg).catch(() => {}); // ignore les erreurs de permission
     });
 }
 
