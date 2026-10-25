@@ -11,7 +11,6 @@ const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 const db = require('./db');
 const { sendStartupLog, getLevelUpChannel, sendLog, getGeneralChannel } = require('./utils');
 const { startVoiceXP, stopVoiceXP, startStreamXP, stopStreamXP } = require('./voice');
-const { handleMessage } = require('./commands');
 const { handleInteraction } = require('./slashHandler');
 const slashCommands = require('./slashCommands');
 
@@ -77,7 +76,6 @@ setInterval(() => {
 // ============================================================
 // 💬 MESSAGES (XP + anti-spam, bridge)
 // ============================================================
-client.on('messageCreate', handleMessage);
 
 // ============================================================
 // 🌉 BRIDGE
@@ -185,6 +183,14 @@ client.once('clientReady', async () => {
     });
     sendStartupLog(client, "📺 Scan des streams terminé.");
 
+});
+
+process.on('unhandledRejection', (err) => {
+    console.error('❌ Unhandled rejection:', err);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught exception:', err);
 });
 
 client.login(process.env.DISCORD_TOKEN);
