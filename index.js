@@ -111,7 +111,7 @@ const schedule = require('node-cron');
 schedule.schedule('0 9 * * *', () => {
     client.guilds.cache.forEach(guild => {
         const ch = getGeneralChannel(guild);
-        if (ch) ch.send('Bonjour tout le monde ! 🌅');
+        if (ch) ch.send('Bonjour tout le monde ! 🌅\nParmi @everyone, qui joue aujourd\'hui ?');
     });
 }, { timezone: "Europe/Paris" });
 
